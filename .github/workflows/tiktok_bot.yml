@@ -1,1 +1,49 @@
+name: TikTok Viral Bot
+
+# DÉCLENCHEURS (QUAND LE BOT SE LANCE)
+on:
+  # 1. Automatiquement tous les jours à 8h00 UTC
+  schedule:
+    - cron: '0 8 * * *'
+  
+  # 2. Manuellement via un bouton sur GitHub (pour tester tout de suite)
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15 # Sécurité pour ne pas tourner indéfiniment
+
+    steps:
+      # ÉTAPE 1 : Récupérer ton code
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # ÉTAPE 2 : Installer FFmpeg (Indispensable pour traiter la vidéo)
+      - name: Install System Dependencies (FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      # ÉTAPE 3 : Installer Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # ÉTAPE 4 : Installer les librairies (yt-dlp, huggingface, etc.)
+      - name: Install Python libraries
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ÉTAPE 5 : Lancer le Cerveau (main.py) avec les clés secrètes
+      - name: Run Viral Bot
+        env:
+          # On injecte les secrets configurés dans GitHub Settings
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }} 
+        run: python main.py
 
