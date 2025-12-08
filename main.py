@@ -11,13 +11,15 @@ from huggingface_hub import InferenceClient
 FILENAME = "viral_video.mp4"
 MAX_SIZE_MB = 24.5
 
-# LISTE DE SECOURS (Si l'IA plante)
+# LISTE DE SECOURS (Si l'IA plante ou est surchargée)
 BACKUP_QUERIES = [
     "Wolf of Wall Street sell me this pen shorts vertical",
     "Peaky Blinders thomas shelby sigma edit vertical",
     "The Office best moments shorts vertical",
     "Kaamelott perceval faux cul shorts vertical",
-    "Oss 117 rire shorts vertical"
+    "Oss 117 rire shorts vertical",
+    "Suits harvey specter quotes shorts vertical",
+    "Breaking Bad funny moments shorts vertical"
 ]
 
 def calculate_virality_score(view_count, like_count):
@@ -36,58 +38,57 @@ def calculate_virality_score(view_count, like_count):
     return round((score_views * 0.7) + (score_engagement * 0.3), 1)
 
 def get_ai_search_query():
-    """Utilise Hugging Face (Zephyr/Mistral) en mode Chat."""
+    """Utilise Hugging Face (Qwen/Mistral) pour générer une idée."""
     token = os.environ.get('HF_TOKEN')
     
     if not token:
-        print("⚠️ Pas de token HF, utilisation de la liste de secours.")
+        print("⚠️ Pas de token HF, passage au mode manuel.")
         return random.choice(BACKUP_QUERIES)
 
-    # On utilise Zephyr, très bon modèle gratuit
-    client = InferenceClient(model="HuggingFaceH4/zephyr-7b-beta", token=token)
+    # On utilise Qwen 2.5 (Modèle très performant et souvent dispo gratuitement)
+    # Si celui-ci échoue, on bascule direct sur la backup list
+    client = InferenceClient(model="Qwen/Qwen2.5-72B-Instruct", token=token)
 
     prompt = """
-    Tu es un expert TikTok. Donne-moi UNE SEULE requête de recherche YouTube pour trouver un "Edit" viral.
-    La requête doit être en ANGLAIS ou FRANÇAIS.
+    Donne-moi UNE SEULE requête de recherche YouTube pour trouver un "Edit" viral (Shorts).
+    Sujets : Business (Wolf of Wall Street, Suits) OU Humour (OSS 117, Kaamelott).
+    Format : Uniquement les mots clés.
     Doit inclure : "shorts", "vertical".
     Exemple : Kaamelott best of perceval shorts vertical
     """
 
     try:
-        # Correction : Utilisation de chat_completion au lieu de text_generation
+        # On utilise chat_completion qui est le standard actuel
         messages = [{"role": "user", "content": prompt}]
-        response = client.chat_completion(messages, max_tokens=50, temperature=0.9)
+        response = client.chat_completion(messages, max_tokens=50, temperature=1.0)
         query = response.choices[0].message.content.strip().replace('"', '').split('\n')[0]
-        
-        # Petit nettoyage si l'IA bavarde
-        if len(query) > 100: query = "The Wolf of Wall Street motivation shorts vertical"
         
         print(f"🧠 L'IA propose : {query}")
         return query
     except Exception as e:
-        print(f"⚠️ Erreur IA ({e}), bascule sur secours.")
+        print(f"⚠️ L'IA n'est pas dispo ({e}). Utilisation de la liste de secours.")
         return random.choice(BACKUP_QUERIES)
 
 def download_and_analyze(search_query):
     print(f"🔍 Traitement de : {search_query}")
     
-    # --- RUSE ANTI-BOT ---
-    # On se fait passer pour un client Android mobile pour éviter le blocage "Sign in"
+    # --- CONFIGURATION YT-DLP ---
+    # Correction de l'erreur "Invalid filter" : On sépare bien les crochets [ext=mp4][height<=1080]
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4,height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]',
+        'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': FILENAME,
         'default_search': 'ytsearch1',
         'noplaylist': True,
         'quiet': True,
-        # C'est ici que la magie opère pour contourner le blocage :
+        # Ruse Anti-Bot : On simule un téléphone Android
         'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
         'user_agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # On extrait d'abord les infos sans télécharger pour vérifier
-            info = ydl.extract_info(search_query, download=True) # On télécharge directement pour éviter double requête
+            # On force le téléchargement direct pour éviter les requêtes doubles qui déclenchent le blocage
+            info = ydl.extract_info(search_query, download=True)
             
             if 'entries' in info:
                 video_data = info['entries'][0]
@@ -100,12 +101,13 @@ def download_and_analyze(search_query):
             url = video_data.get('webpage_url', '')
             
             score = calculate_virality_score(views, likes)
-            print(f"✅ Téléchargé : {title} | Score: {score}%")
+            print(f"✅ Vidéo téléchargée : {title}")
+            print(f"📊 Score viralité : {score}%")
             
             return {'title': title, 'score': score, 'views': views, 'url': url}
 
     except Exception as e:
-        print(f"❌ Erreur critique YouTube : {e}")
+        print(f"❌ Erreur YouTube : {e}")
         return None
 
 def send_email(video_data, query):
@@ -114,11 +116,11 @@ def send_email(video_data, query):
     email_receiver = os.environ.get('EMAIL_RECEIVER')
 
     if not all([email_user, email_pass, email_receiver]): 
-        print("❌ Secrets manquants.")
+        print("❌ Secrets Email manquants.")
         return
 
     if not os.path.exists(FILENAME):
-        print("⚠️ Fichier vidéo absent.")
+        print("⚠️ Fichier vidéo absent (échec téléchargement).")
         return
 
     msg = EmailMessage()
@@ -136,16 +138,19 @@ def send_email(video_data, query):
             smtp.send_message(msg)
         print("✅ Email envoyé !")
     except Exception as e:
-        print(f"❌ Erreur email : {e}")
+        print(f"❌ Erreur lors de l'envoi de l'email : {e}")
 
 if __name__ == "__main__":
-    # Petit délai pour ne pas paraître suspect
+    # Petit délai de sécurité au lancement
     time.sleep(2)
     
     query = get_ai_search_query()
+    
     if query:
         data = download_and_analyze(query)
         if data: 
             send_email(data, query)
         else:
-            print("❌ Échec téléchargement. YouTube bloque peut-être l'IP.")
+            print("❌ Échec total. Vérifie les logs.")
+    else:
+        print("Erreur fatale : Pas de requête de recherche.")
