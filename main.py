@@ -11,14 +11,19 @@ from huggingface_hub import InferenceClient
 FILENAME = "viral_video.mp4"
 MAX_SIZE_MB = 24.0
 
-# LISTE DE SECOURS
+# LISTE DES INSTANCES COBALT (Si une plante, on passe à l'autre)
+COBALT_INSTANCES = [
+    "https://api.cobalt.tools/api/json",      # Instance officielle (souvent chargée)
+    "https://cobalt.startpage.ch/api/json",   # Instance Suisse (rapide)
+    "https://cobalt.kwiatekmiki.pl/api/json", # Instance backup
+]
+
 BACKUP_QUERIES = [
     "Wolf of Wall Street sell me this pen shorts vertical",
     "Peaky Blinders thomas shelby sigma edit vertical",
     "The Office best moments shorts vertical",
     "Kaamelott perceval faux cul shorts vertical",
-    "Oss 117 rire shorts vertical",
-    "Suits harvey specter quotes shorts vertical"
+    "Oss 117 rire shorts vertical"
 ]
 
 def get_ai_search_query():
@@ -28,19 +33,16 @@ def get_ai_search_query():
 
     try:
         client = InferenceClient(model="Qwen/Qwen2.5-72B-Instruct", token=token)
-        prompt = "Donne-moi UNE SEULE requête YouTube pour un Short viral (Business/Motivation/Humour). Juste les mots clés. Exemple: Suits harvey specter edit vertical"
+        prompt = "Donne-moi UNE SEULE requête YouTube pour un Short viral. Juste les mots clés en anglais ou français. Exemple: Suits harvey specter edit vertical"
         messages = [{"role": "user", "content": prompt}]
         response = client.chat_completion(messages, max_tokens=50, temperature=1.0)
         return response.choices[0].message.content.strip().replace('"', '').split('\n')[0]
     except:
         return random.choice(BACKUP_QUERIES)
 
-# --- LA SOLUTION MAGIQUE : COBALT ---
 def download_with_cobalt(youtube_url):
-    print(f"🛡️ ACTIVATION DU PLAN B (Cobalt) pour : {youtube_url}")
+    """Essaie de télécharger via plusieurs serveurs Cobalt."""
     
-    # On utilise une instance publique de l'API Cobalt
-    api_url = "https://api.cobalt.tools/api/json"
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -55,43 +57,46 @@ def download_with_cobalt(youtube_url):
         "isAudioOnly": False
     }
 
-    try:
-        # 1. On demande à Cobalt de traiter la vidéo
-        response = requests.post(api_url, json=payload, headers=headers)
+    # On boucle sur la liste des serveurs
+    for api_url in COBALT_INSTANCES:
+        print(f"🛡️ Essai avec le serveur : {api_url}")
         
-        # Vérification si Cobalt est en surcharge
-        if response.status_code != 200:
-            print(f"⚠️ Cobalt a répondu : {response.status_code} - {response.text}")
-            return False
+        try:
+            response = requests.post(api_url, json=payload, headers=headers, timeout=15)
+            
+            if response.status_code == 200:
+                data = response.json()
+                download_link = data.get('url')
+                
+                if download_link:
+                    print("⬇️ Lien reçu, téléchargement de la vidéo...")
+                    video_response = requests.get(download_link, stream=True)
+                    
+                    with open(FILENAME, 'wb') as f:
+                        for chunk in video_response.iter_content(chunk_size=1024 * 1024):
+                            if chunk: f.write(chunk)
+                    
+                    print("✅ Succès Cobalt !")
+                    return True
+                else:
+                    print(f"⚠️ Serveur OK mais pas de lien : {data}")
+            else:
+                print(f"⚠️ Serveur erreur {response.status_code}")
 
-        data = response.json()
+        except Exception as e:
+            print(f"❌ Erreur connexion serveur : {e}")
+        
+        print("🔄 Passage au serveur suivant...")
+        time.sleep(1)
 
-        # Cobalt peut renvoyer l'URL de différentes manières
-        download_link = data.get('url')
-        
-        if not download_link:
-            print(f"❌ Cobalt n'a pas renvoyé de lien : {data}")
-            return False
-        
-        # 2. On télécharge le fichier final
-        print("⬇️ Téléchargement du fichier depuis Cobalt...")
-        video_response = requests.get(download_link, stream=True)
-        
-        with open(FILENAME, 'wb') as f:
-            for chunk in video_response.iter_content(chunk_size=1024 * 1024): # Chunk de 1MB
-                if chunk: f.write(chunk)
-        
-        print("✅ Fichier sauvegardé avec succès via Cobalt !")
-        return True
+    print("❌ Tous les serveurs Cobalt ont échoué.")
+    return False
 
-    except Exception as e:
-        print(f"❌ Échec Cobalt : {e}")
-        return False
-
-def find_and_download_video(search_query):
-    print(f"🔍 Recherche de l'URL pour : {search_query}")
+def find_video_url(search_query):
+    print(f"🔍 Recherche URL pour : {search_query}")
     
-    # On utilise yt-dlp JUSTE pour trouver l'URL (généralement ça passe mieux que le download)
+    # On utilise yt-dlp uniquement pour CHERCHER le lien (pas télécharger)
+    # C'est beaucoup moins bloqué par YouTube que le téléchargement
     ydl_opts_search = {
         'default_search': 'ytsearch1',
         'noplaylist': True,
@@ -99,37 +104,19 @@ def find_and_download_video(search_query):
         'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
     }
 
-    video_url = ""
-    title = "Vidéo Virale"
-    
     try:
         with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
-            # On demande juste les infos, pas le téléchargement
             info = ydl.extract_info(search_query, download=False)
-            
             if 'entries' in info:
-                video_data = info['entries'][0]
+                data = info['entries'][0]
             else:
-                video_data = info
-                
-            video_url = video_data.get('webpage_url')
-            title = video_data.get('title')
-            print(f"🎯 Lien trouvé : {video_url}")
+                data = info
+            
+            print(f"🎯 Trouvé : {data.get('title')} ({data.get('webpage_url')})")
+            return {'title': data.get('title'), 'url': data.get('webpage_url')}
             
     except Exception as e:
-        print(f"❌ Erreur lors de la recherche : {e}")
-        return None
-
-    if not video_url:
-        print("❌ Aucune URL trouvée.")
-        return None
-
-    # MAINTENANT ON TÉLÉCHARGE VIA COBALT (Contourne le blocage Bot)
-    success = download_with_cobalt(video_url)
-    
-    if success:
-        return {'title': title, 'url': video_url}
-    else:
+        print(f"❌ Erreur recherche : {e}")
         return None
 
 def send_email(video_data, query):
@@ -141,15 +128,13 @@ def send_email(video_data, query):
         print("❌ Secrets manquants.")
         return
 
-    if not os.path.exists(FILENAME) or os.path.getsize(FILENAME) > MAX_SIZE_MB * 1024 * 1024:
-        print("⚠️ Fichier absent ou trop lourd.")
-        return
+    if not os.path.exists(FILENAME): return
 
     msg = EmailMessage()
-    msg['Subject'] = f'🚀 TikTok Ready : {video_data["title"]}'
+    msg['Subject'] = f'🚀 Viral : {video_data["title"]}'
     msg['From'] = email_user
     msg['To'] = email_receiver
-    msg.set_content(f"Voici ton edit viral.\n\nSource: {video_data['url']}\nRecherche: {query}")
+    msg.set_content(f"Lien : {video_data['url']}\nRecherche : {query}")
 
     with open(FILENAME, 'rb') as f:
         msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="video.mp4")
@@ -163,12 +148,15 @@ def send_email(video_data, query):
         print(f"❌ Erreur email : {e}")
 
 if __name__ == "__main__":
-    time.sleep(2) # Pause anti-spam
-    
+    time.sleep(2)
     query = get_ai_search_query()
     if query:
-        data = find_and_download_video(query)
-        if data: 
-            send_email(data, query)
+        video_info = find_video_url(query)
+        if video_info:
+            success = download_with_cobalt(video_info['url'])
+            if success:
+                send_email(video_info, query)
+            else:
+                print("❌ Impossible de télécharger la vidéo via Cobalt.")
         else:
-            print("❌ Échec du processus.")
+            print("❌ Aucune vidéo trouvée.")
