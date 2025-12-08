@@ -1,3 +1,4 @@
-yt-dlp
+# On installe yt-dlp directement depuis leur source pour avoir les patchs anti-blocage d'hier
+yt-dlp@git+https://github.com/yt-dlp/yt-dlp.git@master
 secure-smtplib
-huggingface_hub
+huggingface_hub>=0.20.0
