@@ -1,4 +1,4 @@
-duckduckgo-search
+requests
 secure-smtplib
 huggingface_hub
-requests
+yt-dlp
