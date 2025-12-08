@@ -1,4 +1,3 @@
 requests
 secure-smtplib
-huggingface_hub
 fake-useragent
