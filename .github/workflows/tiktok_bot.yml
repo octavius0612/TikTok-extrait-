@@ -13,20 +13,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # Optimisation : On installe FFmpeg seulement s'il n'est pas déjà là (Linux le gère vite)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      # CORRECTION : Passage à Python 3.10
+      # --- C'EST ICI QUE ÇA CHANGE ---
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10' 
+          python-version: '3.10'
+          cache: 'pip' # <--- LA LIGNE MAGIQUE !
+          # Cela dit à GitHub de garder en mémoire les bibliothèques téléchargées
 
       - name: Install Python libraries
+        # Plus besoin de --upgrade pip à chaque fois si c'est déjà en cache
         run: |
-          pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run Viral Bot
