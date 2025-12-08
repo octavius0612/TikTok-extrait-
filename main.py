@@ -1,113 +1,135 @@
 import os
 import smtplib
-import math
 import random
 import time
+import requests
 from email.message import EmailMessage
 import yt_dlp
 from huggingface_hub import InferenceClient
 
 # --- CONFIGURATION ---
 FILENAME = "viral_video.mp4"
-MAX_SIZE_MB = 24.5
+MAX_SIZE_MB = 24.0
 
-# LISTE DE SECOURS (Si l'IA plante ou est surchargée)
+# LISTE DE SECOURS
 BACKUP_QUERIES = [
     "Wolf of Wall Street sell me this pen shorts vertical",
     "Peaky Blinders thomas shelby sigma edit vertical",
     "The Office best moments shorts vertical",
     "Kaamelott perceval faux cul shorts vertical",
     "Oss 117 rire shorts vertical",
-    "Suits harvey specter quotes shorts vertical",
-    "Breaking Bad funny moments shorts vertical"
+    "Suits harvey specter quotes shorts vertical"
 ]
 
-def calculate_virality_score(view_count, like_count):
-    if not view_count: return 0
-    try:
-        score_views = min(100, math.log10(view_count) * 14) 
-    except:
-        score_views = 10
-    
-    if like_count and view_count > 0:
-        ratio = (like_count / view_count) * 100
-        score_engagement = min(100, ratio * 20)
-    else:
-        score_engagement = 50
-    
-    return round((score_views * 0.7) + (score_engagement * 0.3), 1)
-
 def get_ai_search_query():
-    """Utilise Hugging Face (Qwen/Mistral) pour générer une idée."""
+    """Génère une recherche via Hugging Face."""
     token = os.environ.get('HF_TOKEN')
-    
-    if not token:
-        print("⚠️ Pas de token HF, passage au mode manuel.")
-        return random.choice(BACKUP_QUERIES)
-
-    # On utilise Qwen 2.5 (Modèle très performant et souvent dispo gratuitement)
-    # Si celui-ci échoue, on bascule direct sur la backup list
-    client = InferenceClient(model="Qwen/Qwen2.5-72B-Instruct", token=token)
-
-    prompt = """
-    Donne-moi UNE SEULE requête de recherche YouTube pour trouver un "Edit" viral (Shorts).
-    Sujets : Business (Wolf of Wall Street, Suits) OU Humour (OSS 117, Kaamelott).
-    Format : Uniquement les mots clés.
-    Doit inclure : "shorts", "vertical".
-    Exemple : Kaamelott best of perceval shorts vertical
-    """
+    if not token: return random.choice(BACKUP_QUERIES)
 
     try:
-        # On utilise chat_completion qui est le standard actuel
+        client = InferenceClient(model="Qwen/Qwen2.5-72B-Instruct", token=token)
+        prompt = "Donne-moi UNE SEULE requête YouTube pour un Short viral (Business/Motivation/Humour). Juste les mots clés. Exemple: Suits harvey specter edit vertical"
         messages = [{"role": "user", "content": prompt}]
         response = client.chat_completion(messages, max_tokens=50, temperature=1.0)
-        query = response.choices[0].message.content.strip().replace('"', '').split('\n')[0]
-        
-        print(f"🧠 L'IA propose : {query}")
-        return query
-    except Exception as e:
-        print(f"⚠️ L'IA n'est pas dispo ({e}). Utilisation de la liste de secours.")
+        return response.choices[0].message.content.strip().replace('"', '').split('\n')[0]
+    except:
         return random.choice(BACKUP_QUERIES)
 
-def download_and_analyze(search_query):
-    print(f"🔍 Traitement de : {search_query}")
+# --- LA SOLUTION MAGIQUE : COBALT ---
+def download_with_cobalt(youtube_url):
+    print(f"🛡️ ACTIVATION DU PLAN B (Cobalt) pour : {youtube_url}")
     
-    # --- CONFIGURATION YT-DLP ---
-    # Correction de l'erreur "Invalid filter" : On sépare bien les crochets [ext=mp4][height<=1080]
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': FILENAME,
-        'default_search': 'ytsearch1',
-        'noplaylist': True,
-        'quiet': True,
-        # Ruse Anti-Bot : On simule un téléphone Android
-        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
-        'user_agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
+    # On utilise une instance publique de l'API Cobalt
+    api_url = "https://api.cobalt.tools/api/json"
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    payload = {
+        "url": youtube_url,
+        "vCodec": "h264",
+        "vQuality": "720",
+        "aFormat": "mp3",
+        "isAudioOnly": False
     }
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # On force le téléchargement direct pour éviter les requêtes doubles qui déclenchent le blocage
-            info = ydl.extract_info(search_query, download=True)
+        # 1. On demande à Cobalt de traiter la vidéo
+        response = requests.post(api_url, json=payload, headers=headers)
+        
+        # Vérification si Cobalt est en surcharge
+        if response.status_code != 200:
+            print(f"⚠️ Cobalt a répondu : {response.status_code} - {response.text}")
+            return False
+
+        data = response.json()
+
+        # Cobalt peut renvoyer l'URL de différentes manières
+        download_link = data.get('url')
+        
+        if not download_link:
+            print(f"❌ Cobalt n'a pas renvoyé de lien : {data}")
+            return False
+        
+        # 2. On télécharge le fichier final
+        print("⬇️ Téléchargement du fichier depuis Cobalt...")
+        video_response = requests.get(download_link, stream=True)
+        
+        with open(FILENAME, 'wb') as f:
+            for chunk in video_response.iter_content(chunk_size=1024 * 1024): # Chunk de 1MB
+                if chunk: f.write(chunk)
+        
+        print("✅ Fichier sauvegardé avec succès via Cobalt !")
+        return True
+
+    except Exception as e:
+        print(f"❌ Échec Cobalt : {e}")
+        return False
+
+def find_and_download_video(search_query):
+    print(f"🔍 Recherche de l'URL pour : {search_query}")
+    
+    # On utilise yt-dlp JUSTE pour trouver l'URL (généralement ça passe mieux que le download)
+    ydl_opts_search = {
+        'default_search': 'ytsearch1',
+        'noplaylist': True,
+        'quiet': True,
+        'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
+    }
+
+    video_url = ""
+    title = "Vidéo Virale"
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
+            # On demande juste les infos, pas le téléchargement
+            info = ydl.extract_info(search_query, download=False)
             
             if 'entries' in info:
                 video_data = info['entries'][0]
             else:
                 video_data = info
-
-            title = video_data.get('title', 'Inconnu')
-            views = video_data.get('view_count', 0)
-            likes = video_data.get('like_count', 0)
-            url = video_data.get('webpage_url', '')
+                
+            video_url = video_data.get('webpage_url')
+            title = video_data.get('title')
+            print(f"🎯 Lien trouvé : {video_url}")
             
-            score = calculate_virality_score(views, likes)
-            print(f"✅ Vidéo téléchargée : {title}")
-            print(f"📊 Score viralité : {score}%")
-            
-            return {'title': title, 'score': score, 'views': views, 'url': url}
-
     except Exception as e:
-        print(f"❌ Erreur YouTube : {e}")
+        print(f"❌ Erreur lors de la recherche : {e}")
+        return None
+
+    if not video_url:
+        print("❌ Aucune URL trouvée.")
+        return None
+
+    # MAINTENANT ON TÉLÉCHARGE VIA COBALT (Contourne le blocage Bot)
+    success = download_with_cobalt(video_url)
+    
+    if success:
+        return {'title': title, 'url': video_url}
+    else:
         return None
 
 def send_email(video_data, query):
@@ -116,18 +138,18 @@ def send_email(video_data, query):
     email_receiver = os.environ.get('EMAIL_RECEIVER')
 
     if not all([email_user, email_pass, email_receiver]): 
-        print("❌ Secrets Email manquants.")
+        print("❌ Secrets manquants.")
         return
 
-    if not os.path.exists(FILENAME):
-        print("⚠️ Fichier vidéo absent (échec téléchargement).")
+    if not os.path.exists(FILENAME) or os.path.getsize(FILENAME) > MAX_SIZE_MB * 1024 * 1024:
+        print("⚠️ Fichier absent ou trop lourd.")
         return
 
     msg = EmailMessage()
-    msg['Subject'] = f'🔥 Viral {video_data["score"]}% : {video_data["title"]}'
+    msg['Subject'] = f'🚀 TikTok Ready : {video_data["title"]}'
     msg['From'] = email_user
     msg['To'] = email_receiver
-    msg.set_content(f"Lien: {video_data['url']}\nVues: {video_data['views']}\nRecherche: {query}")
+    msg.set_content(f"Voici ton edit viral.\n\nSource: {video_data['url']}\nRecherche: {query}")
 
     with open(FILENAME, 'rb') as f:
         msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="video.mp4")
@@ -138,19 +160,15 @@ def send_email(video_data, query):
             smtp.send_message(msg)
         print("✅ Email envoyé !")
     except Exception as e:
-        print(f"❌ Erreur lors de l'envoi de l'email : {e}")
+        print(f"❌ Erreur email : {e}")
 
 if __name__ == "__main__":
-    # Petit délai de sécurité au lancement
-    time.sleep(2)
+    time.sleep(2) # Pause anti-spam
     
     query = get_ai_search_query()
-    
     if query:
-        data = download_and_analyze(query)
+        data = find_and_download_video(query)
         if data: 
             send_email(data, query)
         else:
-            print("❌ Échec total. Vérifie les logs.")
-    else:
-        print("Erreur fatale : Pas de requête de recherche.")
+            print("❌ Échec du processus.")
