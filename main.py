@@ -6,158 +6,179 @@ import time
 import requests
 from email.message import EmailMessage
 from googleapiclient.discovery import build
-import yt_dlp
+from fake_useragent import UserAgent
 
 # --- CONFIGURATION ---
 API_KEY = os.environ.get('YOUTUBE_API_KEY') 
-FILENAME = "viral_masterpiece.mp4"
+FILENAME = "viral_video.mp4"
 MAX_SIZE_MB = 24.0
 
 QUERIES = [
-    "motivation discipline speech shorts",
-    "sigma male grindset shorts",
-    "business success advice shorts",
-    "peaky blinders thomas shelby shorts",
-    "wolf of wall street sales shorts",
-    "kaamelott replique culte shorts",
-    "oss 117 drôle shorts"
+    "wolf of wall street motivation shorts",
+    "peaky blinders sigma rule shorts",
+    "business mindset advice shorts",
+    "david goggins discipline shorts",
+    "kaamelott replique drole shorts",
+    "oss 117 scene culte shorts",
+    "motivation sport speech shorts"
 ]
 
-# --- 1. RECHERCHE PRO (API GOOGLE) ---
-def search_viral_video_official():
+# --- LISTE DES MIROIRS DE L'OMBRE (Shadow Mirrors) ---
+# Ce sont des instances Cobalt "Tier 2" moins connues et donc moins bloquées.
+# Elles agissent comme des proxys résidentiels pour nous.
+SHADOW_MIRRORS = [
+    "https://cobalt.rive.cafe/api/json",      # Mirror très rapide
+    "https://cobalt.nicetry.me/api/json",     # Souvent non blacklisté
+    "https://cobalt.ghost.net.in/api/json",   # Mirror Indien (bonne rotation IP)
+    "https://api.wkr.fr/api/json",            # Mirror Français 🇫🇷
+    "https://cobalt.ducks.party/api/json",    # Mirror communautaire
+    "https://cobalt.kwiatekmiki.pl/api/json", # Pologne
+    "https://cobalt.q11.de/api/json"          # Allemagne
+]
+
+# --- 1. RECHERCHE LÉGITIME (API GOOGLE) ---
+def search_google_api():
     if not API_KEY:
-        print("❌ Clé API manquante.")
+        print("❌ Clé API Google manquante dans les Secrets.")
         return None
 
     query = random.choice(QUERIES)
-    print(f"📡 API Google : Recherche '{query}'")
+    print(f"📡 Recherche Officielle : '{query}'")
 
     try:
         youtube = build('youtube', 'v3', developerKey=API_KEY)
+        
         request = youtube.search().list(
-            part="snippet", maxResults=10, q=query, type="video",
-            videoDuration="short", order="viewCount", relevanceLanguage="fr"
+            part="snippet",
+            maxResults=15,
+            q=query,
+            type="video",
+            videoDuration="short",
+            order="viewCount", # On veut du viral
+            relevanceLanguage="fr"
         )
         response = request.execute()
 
         if not response['items']: return None
 
+        # Choix aléatoire pondéré (pour ne pas prendre toujours le 1er)
         video = random.choice(response['items'])
+        
         title = html.unescape(video['snippet']['title'])
         video_id = video['id']['videoId']
         
-        # On construit l'URL classique (plus compatible que /shorts/)
-        video_url = f"https://www.youtube.com/watch?v={video_id}"
+        # On construit l'url standard
+        url = f"https://www.youtube.com/watch?v={video_id}"
         
-        print(f"✅ Cible verrouillée : {title}")
-        print(f"🔗 Lien : {video_url}")
+        print(f"✅ Cible trouvée : {title}")
+        print(f"🔗 Lien : {url}")
         
-        return {'title': title, 'url': video_url}
+        return {'title': title, 'url': url}
 
     except Exception as e:
         print(f"❌ Erreur API Google : {e}")
         return None
 
-# --- 2. TÉLÉCHARGEMENT : PLAN A (YT-DLP MODE IPHONE) ---
-def download_with_ytdlp_ios(url):
-    print("💿 Plan A : Tentative yt-dlp (Mode iPhone)...")
+# --- 2. TÉLÉCHARGEMENT VIA MIROIRS ROTATIFS ---
+def download_via_shadow_mirrors(url):
+    print("🛡️ Démarrage du protocole Miroirs...")
+    ua = UserAgent()
     
-    # Configuration spéciale pour contourner le blocage "Sign in"
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]',
-        'outtmpl': FILENAME,
-        'quiet': True,
-        'no_warnings': True,
-        # L'ASTUCE EST ICI : On simule un client iOS
-        'extractor_args': {'youtube': {'player_client': ['ios']}},
-    }
+    # On mélange les miroirs pour ne pas être prévisible
+    random.shuffle(SHADOW_MIRRORS)
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
+    for mirror in SHADOW_MIRRORS:
+        print(f"   👉 Tentative sur : {mirror}")
         
-        if os.path.exists(FILENAME) and os.path.getsize(FILENAME) > 5000:
-            print("✅ Succès Plan A (yt-dlp) !")
-            return True
-    except Exception as e:
-        print(f"⚠️ Plan A échoué : {e}")
-    
-    return False
+        # Headers pour ressembler à un utilisateur n8n/Twin
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": ua.random,
+            "Origin": mirror.replace("/api/json", ""), # On fait croire qu'on vient du site
+            "Referer": mirror.replace("/api/json", "")
+        }
+        
+        payload = {
+            "url": url,
+            "vCodec": "h264",
+            "vQuality": "1080", # Qualité Max
+            "isAudioOnly": False,
+            "filenamePattern": "basic"
+        }
 
-# --- 3. TÉLÉCHARGEMENT : PLAN B (COBALT AVEC HEADERS) ---
-def download_with_cobalt(url):
-    print("🛡️ Plan B : Tentative Cobalt API...")
-    
-    # Liste mise à jour et nettoyée
-    servers = [
-        "https://cobalt.kwiatekmiki.pl/api/json",
-        "https://cobalt.q11.de/api/json",
-        "https://api.cobalt.tools/api/json",
-        "https://cobalt.synced.vn/api/json"
-    ]
-    
-    # On se fait passer pour un navigateur Firefox
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
-        "Origin": "https://cobalt.tools",
-        "Referer": "https://cobalt.tools/"
-    }
-    
-    payload = {
-        "url": url,
-        "vCodec": "h264",
-        "vQuality": "1080",
-        "isAudioOnly": False
-    }
-
-    for server in servers:
-        print(f"   Trying {server}...")
         try:
-            r = requests.post(server, json=payload, headers=headers, timeout=15)
-            if r.status_code != 200: continue
+            # 1. Demande de traitement au miroir
+            r = requests.post(mirror, json=payload, headers=headers, timeout=15)
             
-            data = r.json()
-            dl_link = data.get('url')
+            if r.status_code != 200:
+                print(f"      ⚠️ Erreur HTTP {r.status_code}")
+                continue
+
+            try:
+                data = r.json()
+            except:
+                continue
+
+            download_link = data.get('url')
             
-            if dl_link:
-                print("   ⬇️ Téléchargement du fichier...")
-                file_resp = requests.get(dl_link, stream=True)
-                with open(FILENAME, 'wb') as f:
-                    for chunk in file_resp.iter_content(chunk_size=1024*1024):
-                        if chunk: f.write(chunk)
-                
-                if os.path.getsize(FILENAME) > 5000:
-                    print("✅ Succès Plan B (Cobalt) !")
-                    return True
-        except:
+            if not download_link:
+                # Parfois le miroir renvoie un status "error" ou "processing"
+                if 'text' in data: print(f"      ⚠️ Info Miroir: {data['text']}")
+                continue
+            
+            # 2. Téléchargement du fichier final
+            print("      ⬇️ Lien généré ! Téléchargement...")
+            
+            # On télécharge le fichier depuis l'URL générée par le miroir
+            # C'est souvent un lien direct vers Google Video ou un CDN intermédiaire
+            file_resp = requests.get(download_link, stream=True, timeout=30)
+            
+            with open(FILENAME, 'wb') as f:
+                size = 0
+                for chunk in file_resp.iter_content(chunk_size=1024*1024):
+                    if chunk: 
+                        f.write(chunk)
+                        size += len(chunk)
+            
+            # Validation du fichier
+            file_size_mb = os.path.getsize(FILENAME) / (1024 * 1024)
+            if file_size_mb > 0.05: # Plus de 50KB
+                print(f"✅ SUCCÈS via {mirror} ! ({file_size_mb:.2f} MB)")
+                return True
+            else:
+                print("      ⚠️ Fichier vide reçu.")
+
+        except Exception as e:
+            print(f"      ❌ Timeout ou erreur connexion : {e}")
             continue
             
-    print("❌ Tous les plans de téléchargement ont échoué.")
+    print("❌ Tous les miroirs ont échoué.")
     return False
 
-# --- 4. LIVRAISON ---
-def deliver(video_data):
+# --- 3. ENVOI ---
+def send_email(video_data):
     email_user = os.environ.get('EMAIL_USER')
     email_pass = os.environ.get('EMAIL_PASSWORD')
     email_receiver = os.environ.get('EMAIL_RECEIVER')
 
     if not all([email_user, email_pass, email_receiver]): return
 
-    if os.path.getsize(FILENAME) > 25 * 1024 * 1024:
-        print("⚠️ Vidéo trop lourde pour Gmail (>25Mo).")
-        # Ici on pourrait implémenter un upload WeTransfer, mais restons simple
+    # Vérif taille max pour Gmail (25MB)
+    if os.path.getsize(FILENAME) > 24.5 * 1024 * 1024:
+        print("⚠️ Fichier trop lourd pour Gmail. Annulation envoi.")
         return
 
     msg = EmailMessage()
-    msg['Subject'] = f"🚀 VIRAL : {video_data['title']}"
+    msg['Subject'] = f"🔥 PRÊT : {video_data['title']}"
     msg['From'] = email_user
     msg['To'] = email_receiver
-    msg.set_content(f"Voici ta vidéo HD.\nSource : {video_data['url']}")
+    
+    body = f"Vidéo téléchargée en haute qualité.\nSource : {video_data['url']}"
+    msg.set_content(body)
 
     with open(FILENAME, 'rb') as f:
-        msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="video.mp4")
+        msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="viral.mp4")
 
     with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
         smtp.login(email_user, email_pass)
@@ -165,16 +186,14 @@ def deliver(video_data):
     print("✅ Email envoyé !")
 
 if __name__ == "__main__":
-    # 1. Recherche
-    video_info = search_viral_video_official()
+    # Étape 1 : Trouver la pépite (API Google)
+    video_info = search_google_api()
     
     if video_info:
-        # 2. Téléchargement (Essai A puis B)
-        success = download_with_ytdlp_ios(video_info['url'])
-        if not success:
-            success = download_with_cobalt(video_info['url'])
+        # Étape 2 : Passer par les miroirs de l'ombre
+        success = download_via_shadow_mirrors(video_info['url'])
         
-        # 3. Envoi
         if success:
-            deliver(video_info)
+            # Étape 3 : Livrer
+            send_email(video_info)
 
