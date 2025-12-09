@@ -1,6 +1,3 @@
-flask
-gunicorn
 requests
-secure-smtplib
-fake-useragent
 google-generativeai
+fake-useragent
