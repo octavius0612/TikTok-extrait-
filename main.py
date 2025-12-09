@@ -11,6 +11,7 @@ from fake_useragent import UserAgent
 # --- CONFIGURATION ---
 API_KEY = os.environ.get('YOUTUBE_API_KEY') 
 FILENAME = "viral_video.mp4"
+# Gmail bloque à 25Mo, on se limite à 24Mo pour être sûr
 MAX_SIZE_MB = 24.0
 
 QUERIES = [
@@ -23,12 +24,11 @@ QUERIES = [
     "motivation sport speech shorts"
 ]
 
-# --- LISTE DES SERVEURS MAJEURS (DNS Robustes) ---
-# On utilise uniquement les gros serveurs Invidious qui ne sont pas filtrés par le DNS Azure.
+# --- LISTE DES SERVEURS INVIDIOUS (ROBUSTES) ---
 INVIDIOUS_INSTANCES = [
     "https://inv.tux.pizza",
     "https://vid.puffyan.us",
-    "https://yewtu.be",           # Le plus gros (Pays-Bas)
+    "https://yewtu.be",
     "https://invidious.jing.rocks",
     "https://invidious.projectsegfau.lt",
     "https://invidious.drgns.space"
@@ -75,54 +75,51 @@ def download_direct_stream(video_id):
     for instance in INVIDIOUS_INSTANCES:
         print(f"   👉 Connexion à : {instance}")
         
-        # URL Magique : Force le téléchargement du MP4 (itag 18=360p, 22=720p)
-        # On tente le 720p (itag 22) pour la qualité, sinon on pourrait fallback sur 18
-        direct_url = f"{instance}/latest_version?id={video_id}&itag=22"
-        
-        headers = {
-            "User-Agent": ua.random,
-            "Referer": f"{instance}/watch?v={video_id}" # On fait croire qu'on est sur la page
-        }
+        # URL Magique : Force le téléchargement du MP4
+        # itag 22 = 720p (HD Light)
+        # itag 18 = 360p (SD - Backup si HD échoue)
+        itags_to_try = ['22', '18']
 
-        try:
-            # On lance le stream avec un timeout strict pour ne pas bloquer
-            r = requests.get(direct_url, headers=headers, stream=True, timeout=15)
+        for itag in itags_to_try:
+            direct_url = f"{instance}/latest_version?id={video_id}&itag={itag}"
             
-            # Si ça ne marche pas, on passe au suivant
-            if r.status_code != 200:
-                print(f"      ⚠️ Status {r.status_code}")
-                continue
+            headers = {
+                "User-Agent": ua.random,
+                "Referer": f"{instance}/watch?v={video_id}"
+            }
+
+            try:
+                # On lance le stream avec un timeout strict
+                r = requests.get(direct_url, headers=headers, stream=True, timeout=15)
                 
-            # Vérification du type de contenu (on veut video/mp4, pas du HTML)
-            content_type = r.headers.get('Content-Type', '')
-            if 'video' not in content_type:
-                print(f"      ⚠️ Reçu du HTML au lieu de la vidéo ({content_type})")
+                if r.status_code != 200:
+                    continue
+                    
+                content_type = r.headers.get('Content-Type', '')
+                if 'video' not in content_type:
+                    continue
+
+                print(f"      ⬇️ Flux vidéo détecté (itag {itag}) ! Réception...")
+                
+                with open(FILENAME, 'wb') as f:
+                    downloaded = 0
+                    for chunk in r.iter_content(chunk_size=1024*1024):
+                        if chunk: 
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            # Sécurité Gmail (24MB max)
+                            if downloaded > 24 * 1024 * 1024:
+                                print("      ⚠️ Fichier trop gros. Arrêt.")
+                                break
+                
+                # Vérification finale
+                size_mb = os.path.getsize(FILENAME) / (1024 * 1024)
+                if size_mb > 0.1: # Plus de 100KB
+                    print(f"✅ SUCCÈS ! Vidéo récupérée ({size_mb:.2f} MB)")
+                    return True
+
+            except Exception as e:
                 continue
-
-            print("      ⬇️ Flux vidéo capté ! Réception des paquets...")
-            
-            with open(FILENAME, 'wb') as f:
-                downloaded = 0
-                for chunk in r.iter_content(chunk_size=1024*1024):
-                    if chunk: 
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        # Sécurité Gmail (24MB max)
-                        if downloaded > 24 * 1024 * 1024:
-                            print("      ⚠️ Fichier trop gros. Arrêt préventif.")
-                            break
-            
-            # Vérification finale
-            size_mb = os.path.getsize(FILENAME) / (1024 * 1024)
-            if size_mb > 0.1: # Plus de 100KB
-                print(f"✅ SUCCÈS ! Vidéo récupérée ({size_mb:.2f} MB)")
-                return True
-            else:
-                print("      ⚠️ Fichier vide.")
-
-        except Exception as e:
-            print(f"      ❌ Erreur réseau : {e}")
-            continue
             
     print("❌ Tous les serveurs Invidious ont échoué.")
     return False
@@ -159,10 +156,4 @@ if __name__ == "__main__":
         success = download_direct_stream(video_info['id'])
         if success:
             send_email(video_info)
-
-Pourquoi ça va marcher ?
- * Domaines Majeurs : yewtu.be ou vid.puffyan.us sont des domaines majeurs qu'Azure ne peut pas "oublier" de résoudre (contrairement aux petits serveurs Cobalt précédents).
- * Pas d'API : On ne fait pas un appel API (/api/json). On fait une requête GET standard (/latest_version). Pour le réseau, c'est identique à télécharger une image ou un PDF. Il n'y a pas de logique complexe qui peut planter.
- * Simulation Vidéo : Le header Referer fait croire au serveur que tu es bien sur la page de la vidéo, ce qui débloque souvent l'accès au fichier.
-Lance-le. Les serveurs Invidious sont un peu plus lents que Cobalt, donc le téléchargement peut prendre 10-15 secondes, mais ça passera.
 
