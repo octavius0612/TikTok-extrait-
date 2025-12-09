@@ -24,7 +24,8 @@ FALLBACK_QUERIES = [
     "wolf of wall street motivation shorts",
     "peaky blinders thomas shelby shorts",
     "business mindset advice shorts",
-    "david goggins discipline shorts"
+    "david goggins discipline shorts",
+    "kaamelott replique drole shorts"
 ]
 
 def get_search_query():
@@ -93,6 +94,7 @@ if __name__ == "__main__":
         print("❌ Clé API Google manquante")
         exit()
 
+    print("🔍 Recherche via API Google...")
     youtube = build('youtube', 'v3', developerKey=API_KEY)
     request = youtube.search().list(part="snippet", maxResults=10, q=get_search_query(), type="video", videoDuration="short", order="viewCount")
     response = request.execute()
@@ -108,15 +110,5 @@ if __name__ == "__main__":
                 break
     else:
         print("❌ Rien trouvé.")
-
-3. requirements.txt
-google-api-python-client
-yt-dlp
-secure-smtplib
-google-generativeai
-
-Pourquoi ça va marcher ?
-Dans le fichier YAML, j'ai ajouté ces commandes :
-grep -v "Address" full.conf | grep -v "DNS" | grep -v "MTU" > wg0.conf
 
 
