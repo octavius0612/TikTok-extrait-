@@ -1,45 +1,63 @@
-name: TikTok Bot (VPN WireGuard)
+name: TikTok Bot (VPN Fix)
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Lance tous les jours à 8h00 UTC
-  workflow_dispatch: # Permet de lancer manuellement pour tester
+    - cron: '0 8 * * *'
+  workflow_dispatch:
 
 jobs:
-  run-with-vpn:
+  run-vpn:
     runs-on: ubuntu-latest
-    # Cette option est CRUCIALE : elle donne les droits "Admin Réseau" pour lancer le VPN
+    # On donne les pleins pouvoirs réseau au conteneur
     container:
       image: python:3.11-bookworm
-      options: --cap-add=NET_ADMIN --device /dev/net/tun 
+      options: --cap-add=NET_ADMIN --device /dev/net/tun --sysctl net.ipv6.conf.all.disable_ipv6=0
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 1. INSTALLATION & CONNEXION VPN
-      - name: Setup WireGuard
+      - name: Install Tools
         run: |
-          apt-get update && apt-get install -y wireguard openresolv iproute2 curl
-          echo "${{ secrets.WIREGUARD_CONF }}" > /etc/wireguard/wg0.conf
-          chmod 600 /etc/wireguard/wg0.conf
-          wg-quick up wg0
-          
-          # Petite pause pour laisser la connexion s'établir
-          sleep 2
-          
-          # PREUVE QUE ÇA MARCHE : On affiche l'IP publique utilisée
-          echo "🌍 MON IP ACTUELLE EST :"
-          curl -s ifconfig.me
-          # Si tu vois 213.239... dans les logs, c'est gagné !
+          apt-get update
+          apt-get install -y wireguard iproute2 curl openresolv
 
-      # 2. INSTALLATION PYTHON
-      - name: Install Dependencies
+      # C'EST ICI LE CORRECTIF "MANUEL"
+      - name: Start Manual VPN
+        run: |
+          # 1. Création du fichier de config
+          echo "${{ secrets.WIREGUARD_CONF }}" > wg0.conf
+          chmod 600 wg0.conf
+          
+          # 2. Création de l'interface réseau virtuelle
+          ip link add dev wg0 type wireguard
+          
+          # 3. Assignation de ton IP privée (Celle qui est dans ton secret)
+          ip address add 10.0.192.56/32 dev wg0
+          
+          # 4. Chargement de la config
+          wg setconf wg0 wg0.conf
+          
+          # 5. Activation de l'interface
+          ip link set up dev wg0
+          
+          # 6. ROUTAGE (Le moment délicat)
+          # On ajoute une route pour que tout le trafic passe par le VPN
+          ip route add 0.0.0.0/0 dev wg0
+          
+          # Petite pause pour laisser le tunnel se stabiliser
+          sleep 3
+          
+          # 7. PREUVE DE FONCTIONNEMENT
+          echo "🌍 Test de l'IP publique..."
+          curl --max-time 5 https://ifconfig.me
+          # Si ça affiche l'IP de ton serveur (213...), c'est GAGNÉ.
+
+      - name: Install Python Deps
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 3. LANCEMENT DU BOT (Sous protection VPN)
       - name: Run Bot
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
