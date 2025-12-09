@@ -1,5 +1,6 @@
-google-api-python-client
+flask
+gunicorn
 requests
 secure-smtplib
-google-generativeai
 fake-useragent
+google-generativeai
