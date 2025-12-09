@@ -1,9 +1,9 @@
-name: TikTok Viral Bot
+name: TikTok Viral Bot (Pro API)
 
 on:
   schedule:
-    - cron: '0 8 * * *'
-  workflow_dispatch:
+    - cron: '0 8 * * *' # Tous les matins à 8h
+  workflow_dispatch: # Bouton manuel
 
 jobs:
   run-bot:
@@ -13,29 +13,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Optimisation : On installe FFmpeg seulement s'il n'est pas déjà là (Linux le gère vite)
       - name: Install System Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      # --- C'EST ICI QUE ÇA CHANGE ---
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
-          cache: 'pip' # <--- LA LIGNE MAGIQUE !
-          # Cela dit à GitHub de garder en mémoire les bibliothèques téléchargées
+          python-version: '3.11' # Version plus récente (supprime le warning)
+          cache: 'pip'
 
       - name: Install Python libraries
-        # Plus besoin de --upgrade pip à chaque fois si c'est déjà en cache
         run: |
+          pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run Viral Bot
         env:
+          # C'est ici qu'on injecte les clés dans le script
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }} 
+          # LA LIGNE QUI MANQUAIT :
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: python main.py
