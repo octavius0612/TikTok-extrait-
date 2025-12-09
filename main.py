@@ -2,177 +2,179 @@ import os
 import smtplib
 import random
 import html
+import time
 import requests
 from email.message import EmailMessage
-from googleapiclient.discovery import build # La librairie officielle Google
+from googleapiclient.discovery import build
+import yt_dlp
 
 # --- CONFIGURATION ---
-# Mets ta clé API Google ici (ou dans les Secrets GitHub sous YOUTUBE_API_KEY)
-# C'est la seule chose dont tu as besoin pour ne plus être bloqué.
 API_KEY = os.environ.get('YOUTUBE_API_KEY') 
-
 FILENAME = "viral_masterpiece.mp4"
 MAX_SIZE_MB = 24.0
 
-# Tes thèmes de recherche
 QUERIES = [
-    "motivation discipline speech",
-    "sigma male grindset",
-    "business success advice",
-    "peaky blinders thomas shelby",
-    "wolf of wall street sales",
-    "kaamelott replique culte",
-    "oss 117 drôle"
+    "motivation discipline speech shorts",
+    "sigma male grindset shorts",
+    "business success advice shorts",
+    "peaky blinders thomas shelby shorts",
+    "wolf of wall street sales shorts",
+    "kaamelott replique culte shorts",
+    "oss 117 drôle shorts"
 ]
 
-# --- FONCTION 1 : RECHERCHE VIA API OFFICIELLE (Comme n8n) ---
+# --- 1. RECHERCHE PRO (API GOOGLE) ---
 def search_viral_video_official():
     if not API_KEY:
-        print("❌ Erreur : Il manque la clé API YouTube (YOUTUBE_API_KEY).")
+        print("❌ Clé API manquante.")
         return None
 
     query = random.choice(QUERIES)
-    print(f"📡 Appel API YouTube Officielle pour : '{query}'")
+    print(f"📡 API Google : Recherche '{query}'")
 
     try:
-        # Connexion officielle à Google
         youtube = build('youtube', 'v3', developerKey=API_KEY)
-
-        # La requête précise (Shorts, triés par vues, haute pertinence)
         request = youtube.search().list(
-            part="snippet",
-            maxResults=5,          # On en prend 5 pour avoir le choix
-            q=query,
-            type="video",
-            videoDuration="short", # Filtre Shorts natif
-            order="viewCount",     # Les plus virales d'abord
-            relevanceLanguage="fr" # Priorité au contenu FR/Compréhensible
+            part="snippet", maxResults=10, q=query, type="video",
+            videoDuration="short", order="viewCount", relevanceLanguage="fr"
         )
-        
         response = request.execute()
 
-        # On prend un résultat au hasard parmi le Top 5 pour varier
-        if not response['items']:
-            print("⚠️ Aucun résultat trouvé par l'API.")
-            return None
+        if not response['items']: return None
 
         video = random.choice(response['items'])
-        
-        video_id = video['id']['videoId']
         title = html.unescape(video['snippet']['title'])
-        channel = video['snippet']['channelTitle']
+        video_id = video['id']['videoId']
         
-        # Lien propre
-        video_url = f"https://www.youtube.com/shorts/{video_id}"
+        # On construit l'URL classique (plus compatible que /shorts/)
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
         
-        print(f"✅ Trouvé (Légitime) : {title} par {channel}")
+        print(f"✅ Cible verrouillée : {title}")
         print(f"🔗 Lien : {video_url}")
         
-        return {'title': title, 'url': video_url, 'channel': channel}
+        return {'title': title, 'url': video_url}
 
     except Exception as e:
         print(f"❌ Erreur API Google : {e}")
         return None
 
-# --- FONCTION 2 : TÉLÉCHARGEMENT VIA COBALT (Qualité Max) ---
-def download_clean_video(url):
-    # Liste de serveurs robustes
-    cobalt_servers = [
-        "https://api.cobalt.tools/api/json",
+# --- 2. TÉLÉCHARGEMENT : PLAN A (YT-DLP MODE IPHONE) ---
+def download_with_ytdlp_ios(url):
+    print("💿 Plan A : Tentative yt-dlp (Mode iPhone)...")
+    
+    # Configuration spéciale pour contourner le blocage "Sign in"
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]',
+        'outtmpl': FILENAME,
+        'quiet': True,
+        'no_warnings': True,
+        # L'ASTUCE EST ICI : On simule un client iOS
+        'extractor_args': {'youtube': {'player_client': ['ios']}},
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        
+        if os.path.exists(FILENAME) and os.path.getsize(FILENAME) > 5000:
+            print("✅ Succès Plan A (yt-dlp) !")
+            return True
+    except Exception as e:
+        print(f"⚠️ Plan A échoué : {e}")
+    
+    return False
+
+# --- 3. TÉLÉCHARGEMENT : PLAN B (COBALT AVEC HEADERS) ---
+def download_with_cobalt(url):
+    print("🛡️ Plan B : Tentative Cobalt API...")
+    
+    # Liste mise à jour et nettoyée
+    servers = [
         "https://cobalt.kwiatekmiki.pl/api/json",
-        "https://cobalt.xy24.eu/api/json"
+        "https://cobalt.q11.de/api/json",
+        "https://api.cobalt.tools/api/json",
+        "https://cobalt.synced.vn/api/json"
     ]
     
+    # On se fait passer pour un navigateur Firefox
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/115.0",
+        "Origin": "https://cobalt.tools",
+        "Referer": "https://cobalt.tools/"
     }
     
     payload = {
         "url": url,
         "vCodec": "h264",
-        "vQuality": "1080", # On force la HD
+        "vQuality": "1080",
         "isAudioOnly": False
     }
 
-    for server in cobalt_servers:
-        print(f"🛡️ Téléchargement via : {server}")
+    for server in servers:
+        print(f"   Trying {server}...")
         try:
-            r = requests.post(server, json=payload, headers=headers, timeout=20)
+            r = requests.post(server, json=payload, headers=headers, timeout=15)
+            if r.status_code != 200: continue
             
-            if r.status_code == 200:
-                data = r.json()
-                dl_link = data.get('url')
+            data = r.json()
+            dl_link = data.get('url')
+            
+            if dl_link:
+                print("   ⬇️ Téléchargement du fichier...")
+                file_resp = requests.get(dl_link, stream=True)
+                with open(FILENAME, 'wb') as f:
+                    for chunk in file_resp.iter_content(chunk_size=1024*1024):
+                        if chunk: f.write(chunk)
                 
-                if dl_link:
-                    print("⬇️ Réception du fichier...")
-                    file_resp = requests.get(dl_link, stream=True)
-                    
-                    with open(FILENAME, 'wb') as f:
-                        for chunk in file_resp.iter_content(chunk_size=1024*1024):
-                            if chunk: f.write(chunk)
-                    
-                    if os.path.getsize(FILENAME) > 5000:
-                        return True
+                if os.path.getsize(FILENAME) > 5000:
+                    print("✅ Succès Plan B (Cobalt) !")
+                    return True
         except:
             continue
             
-    print("❌ Impossible de télécharger la vidéo.")
+    print("❌ Tous les plans de téléchargement ont échoué.")
     return False
 
-# --- FONCTION 3 : LIVRAISON ---
-def deliver_content(video_data):
+# --- 4. LIVRAISON ---
+def deliver(video_data):
     email_user = os.environ.get('EMAIL_USER')
     email_pass = os.environ.get('EMAIL_PASSWORD')
     email_receiver = os.environ.get('EMAIL_RECEIVER')
 
-    if not all([email_user, email_pass, email_receiver]):
-        print("❌ Secrets Email manquants.")
+    if not all([email_user, email_pass, email_receiver]): return
+
+    if os.path.getsize(FILENAME) > 25 * 1024 * 1024:
+        print("⚠️ Vidéo trop lourde pour Gmail (>25Mo).")
+        # Ici on pourrait implémenter un upload WeTransfer, mais restons simple
         return
 
     msg = EmailMessage()
-    msg['Subject'] = f"🚀 PRÊT À POSTER : {video_data['title']}"
+    msg['Subject'] = f"🚀 VIRAL : {video_data['title']}"
     msg['From'] = email_user
     msg['To'] = email_receiver
-    
-    body = f"""
-    Salut,
-    
-    L'API Google a détecté ce contenu viral ({video_data['channel']}).
-    Le fichier joint est propre (pas de filigrane), HD 1080p.
-    
-    1. Télécharge la pièce jointe sur ton téléphone.
-    2. Ouvre TikTok / YouTube Shorts.
-    3. Ajoute une musique tendance (volume 5%).
-    4. Publie !
-    
-    Source originale : {video_data['url']}
-    """
-    msg.set_content(body)
+    msg.set_content(f"Voici ta vidéo HD.\nSource : {video_data['url']}")
 
     with open(FILENAME, 'rb') as f:
-        msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="viral_short.mp4")
+        msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="video.mp4")
 
-    try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            smtp.login(email_user, email_pass)
-            smtp.send_message(msg)
-        print("✅ Email envoyé avec succès !")
-    except Exception as e:
-        print(f"❌ Erreur envoi : {e}")
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        smtp.login(email_user, email_pass)
+        smtp.send_message(msg)
+    print("✅ Email envoyé !")
 
 if __name__ == "__main__":
-    # 1. On cherche proprement (Comme n8n)
+    # 1. Recherche
     video_info = search_viral_video_official()
     
     if video_info:
-        # 2. On télécharge proprement
-        success = download_clean_video(video_info['url'])
+        # 2. Téléchargement (Essai A puis B)
+        success = download_with_ytdlp_ios(video_info['url'])
+        if not success:
+            success = download_with_cobalt(video_info['url'])
         
+        # 3. Envoi
         if success:
-            # 3. On livre
-            deliver_content(video_info)
-    else:
-        print("❌ Aucune vidéo trouvée ou erreur API.")
+            deliver(video_info)
 
