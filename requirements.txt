@@ -5,3 +5,4 @@ requests
 secure-smtplib
 fake-useragent
 google-generativeai
+yt-dlp@git+https://github.com/yt-dlp/yt-dlp.git@master
