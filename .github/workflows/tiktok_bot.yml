@@ -1,4 +1,4 @@
-name: TikTok Bot (VPN Fix)
+name: TikTok Bot (VPN Final)
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 jobs:
   run-vpn:
     runs-on: ubuntu-latest
-    # On donne les pleins pouvoirs réseau au conteneur
+    # Droits d'administration réseau obligatoires
     container:
       image: python:3.11-bookworm
       options: --cap-add=NET_ADMIN --device /dev/net/tun --sysctl net.ipv6.conf.all.disable_ipv6=0
@@ -20,38 +20,38 @@ jobs:
       - name: Install Tools
         run: |
           apt-get update
-          apt-get install -y wireguard iproute2 curl openresolv
+          apt-get install -y wireguard iproute2 curl
 
-      # C'EST ICI LE CORRECTIF "MANUEL"
-      - name: Start Manual VPN
+      - name: Start VPN (Clean Config)
         run: |
-          # 1. Création du fichier de config
-          echo "${{ secrets.WIREGUARD_CONF }}" > wg0.conf
+          # 1. On écrit ta config complète dans un fichier temporaire
+          echo "${{ secrets.WIREGUARD_CONF }}" > full.conf
+          
+          # 2. NETTOYAGE : On enlève Address et DNS car 'wg' ne les aime pas
+          grep -v "Address" full.conf | grep -v "DNS" | grep -v "MTU" > wg0.conf
           chmod 600 wg0.conf
           
-          # 2. Création de l'interface réseau virtuelle
+          # 3. Création de l'interface
           ip link add dev wg0 type wireguard
           
-          # 3. Assignation de ton IP privée (Celle qui est dans ton secret)
+          # 4. On ajoute l'adresse IP manuellement (Celle de ton erreur)
           ip address add 10.0.192.56/32 dev wg0
           
-          # 4. Chargement de la config
+          # 5. On charge la config nettoyée
           wg setconf wg0 wg0.conf
           
-          # 5. Activation de l'interface
+          # 6. On allume
           ip link set up dev wg0
           
-          # 6. ROUTAGE (Le moment délicat)
-          # On ajoute une route pour que tout le trafic passe par le VPN
+          # 7. ROUTAGE : Tout le trafic passe par le tunnel
           ip route add 0.0.0.0/0 dev wg0
           
-          # Petite pause pour laisser le tunnel se stabiliser
           sleep 3
           
-          # 7. PREUVE DE FONCTIONNEMENT
-          echo "🌍 Test de l'IP publique..."
+          # 8. PREUVE
+          echo "🌍 IP AVANT : (Masquée)"
+          echo "🌍 IP APRÈS (VPN) :"
           curl --max-time 5 https://ifconfig.me
-          # Si ça affiche l'IP de ton serveur (213...), c'est GAGNÉ.
 
       - name: Install Python Deps
         run: |
