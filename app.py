@@ -16,6 +16,9 @@ app = Flask(__name__)
 # --- CONFIGURATION ---
 API_KEY = os.environ.get('YOUTUBE_API_KEY') 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+# IMPORTANT : Sur Render, on DOIT écrire dans /tmp
+# Sinon : "Read-only file system error"
 FILENAME = "/tmp/viral_video.mp4"
 
 # --- CONFIG IA ---
@@ -34,32 +37,14 @@ FALLBACK_QUERIES = [
     "kaamelott replique drole shorts"
 ]
 
-# --- COFFRE-FORT D'URGENCE (Archive.org - 100% NO BLOCK) ---
-# Ces liens sont hébergés sur des serveurs publics sans protection anti-bot.
+# --- COFFRE DE SECOURS (Si YouTube bloque l'IP) ---
 EMERGENCY_VAULT = [
-    {
-        "title": "🐺 Wolf of Wall Street - Sell Me This Pen",
-        "url": "https://ia801602.us.archive.org/11/items/wolf-of-wall-street-sell-me-this-pen/Wolf_of_Wall_Street_Sell_Me_This_Pen.mp4",
-        "caption": "Vends-moi ce stylo. L'art de la négo. 🖊️ #business #wolfofwallstreet"
-    },
-    {
-        "title": "🕵️ OSS 117 - J'aime me beurrer la biscotte",
-        "url": "https://ia601408.us.archive.org/14/items/oss-117-le-caire-nid-d-espions-j-aime-me-beurrer-la-biscotte/OSS%20117%20Le%20Caire%20nid%20d%27espions%20-%20J%27aime%20me%20beurrer%20la%20biscotte.mp4",
-        "caption": "Habile ! La réplique culte. 😂 #oss117 #humour"
-    },
-    {
-        "title": "🧊 Wim Hof - Discipline",
-        "url": "https://ia800300.us.archive.org/1/items/WimHofMethodRevealed/WimHofMethodRevealed.mp4",
-        "caption": "Le pouvoir du mental. Respire. ❄️ #wimhof #motivation"
-    },
-    {
-        "title": "💪 Arnold Schwarzenegger - Motivation",
-        "url": "https://ia800609.us.archive.org/24/items/ArnoldSchwarzeneggerMotivation/ArnoldSchwarzeneggerMotivation.mp4",
-        "caption": "No pain, no gain. Travaille dur. 🏋️ #gymtok #succes"
-    }
+    {"title": "Wolf of Wall Street - Sell me this pen", "url": "https://ia801602.us.archive.org/11/items/wolf-of-wall-street-sell-me-this-pen/Wolf_of_Wall_Street_Sell_Me_This_Pen.mp4", "caption": "Sell me this pen! 🖊️ #viral"},
+    {"title": "OSS 117 Rire", "url": "https://ia902606.us.archive.org/3/items/oss-117-le-caire-nid-d-espions-bambino/OSS%20117%20Le%20Caire%20nid%20d%27espions%20-%20Bambino.mp4", "caption": "Habile ! 😎 #oss117"},
 ]
 
-# --- IA ---
+# --- FONCTIONS ---
+
 def get_search_query():
     if USE_AI:
         try:
@@ -74,38 +59,39 @@ def get_caption(title, channel):
     if USE_AI:
         try:
             model = genai.GenerativeModel('gemini-2.0-flash')
-            response = model.generate_content(f"Description tiktok courte pour '{title}'. 3 hashtags.")
+            response = model.generate_content(f"Description tiktok virale pour '{title}'. 3 hashtags.")
             return response.text.strip()
         except: pass
     return f"Credit: {channel} 🔥 #viral"
 
-# --- MOTEUR SMART TV (YT-DLP) ---
+# --- MOTEUR SMART TV (Avec correctif disque) ---
 def download_with_smart_tv(video_url):
-    print("📺 Tentative mode Smart TV (Anti-blocage)...")
+    print("📺 Tentative mode Smart TV...")
     
-    # On configure yt-dlp pour ressembler à une Android TV
-    # On demande un format unique (mp4) pour éviter d'avoir besoin de FFmpeg
+    # Configuration stricte pour Render : TOUT doit aller dans /tmp
     ydl_opts = {
         'format': 'best[ext=mp4]/best', 
         'outtmpl': FILENAME,
+        'paths': {'home': '/tmp', 'temp': '/tmp'}, # Force les dossiers temp
+        'cache_dir': '/tmp/yt-dlp-cache',          # Force le cache dans tmp
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        # L'astuce est ici : on simule un client TV qui a moins de sécurité
         'extractor_args': {'youtube': {'player_client': ['android_tv', 'web']}},
         'user_agent': 'Mozilla/5.0 (Linux; Android 9; BRAVIA 4K UR3 Build/PPR1.180610.011; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/78.0.3904.108 Mobile Safari/537.36'
     }
 
     try:
-        # Nettoyage préalable
-        if os.path.exists(FILENAME): os.remove(FILENAME)
+        # Nettoyage préventif
+        if os.path.exists(FILENAME): 
+            os.remove(FILENAME)
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
         
         # Vérification
         if os.path.exists(FILENAME) and os.path.getsize(FILENAME) > 50000:
-            print("✅ Succès Smart TV !")
+            print("✅ Succès téléchargement Smart TV !")
             return True
             
     except Exception as e:
@@ -117,6 +103,8 @@ def download_with_smart_tv(video_url):
 def download_direct_file(url):
     print("🛡️ Téléchargement Direct (Coffre-fort)...")
     try:
+        if os.path.exists(FILENAME): os.remove(FILENAME)
+        
         r = requests.get(url, stream=True, timeout=60, headers={"User-Agent": UserAgent().random})
         if r.status_code != 200: return False
         
@@ -124,7 +112,9 @@ def download_direct_file(url):
             for chunk in r.iter_content(chunk_size=1024*1024):
                 if chunk: f.write(chunk)
         return os.path.getsize(FILENAME) > 50000
-    except: return False
+    except Exception as e:
+        print(f"❌ Erreur Disque/Réseau : {e}")
+        return False
 
 # --- ROUTES ---
 @app.route('/')
@@ -136,8 +126,7 @@ def run_bot_api():
     if not API_KEY: return jsonify({"status": "error", "message": "Clé API manquante"})
 
     try:
-        # 1. Recherche (API Google)
-        # On utilise l'API officielle car elle ne bloque JAMAIS la recherche
+        # 1. Recherche
         youtube = build('youtube', 'v3', developerKey=API_KEY)
         request = youtube.search().list(part="snippet", maxResults=5, q=get_search_query(), type="video", videoDuration="short", order="viewCount")
         response = request.execute()
@@ -145,9 +134,9 @@ def run_bot_api():
         success = False
         final_data = {}
 
-        # 2. Tentative de téléchargement "Smart TV" sur les résultats
+        # 2. Tentative Smart TV
         if response.get('items'):
-            for item in random.sample(response['items'], min(3, len(response['items']))):
+            for item in random.sample(response['items'], min(2, len(response['items']))):
                 vid_id = item['id']['videoId']
                 title = html.unescape(item['snippet']['title'])
                 url = f"https://www.youtube.com/watch?v={vid_id}"
@@ -158,12 +147,11 @@ def run_bot_api():
                         "title": title,
                         "url": url,
                         "caption": get_caption(title, item['snippet']['channelTitle']),
-                        "source": "YouTube (Smart TV Mode)"
+                        "source": "YouTube (Smart TV)"
                     }
                     break
         
-        # 3. PLAN Z : COFFRE-FORT (Si la TV est bloquée)
-        # Ceci est la garantie 100% que tu auras un mail
+        # 3. PLAN Z : COFFRE-FORT (Si l'IP est bannie)
         if not success:
             print("🚨 MODE URGENCE ACTIVÉ")
             backup = random.choice(EMERGENCY_VAULT)
@@ -186,7 +174,7 @@ def run_bot_api():
                 "ai_used": USE_AI
             })
         
-        return jsonify({"status": "error", "message": "Erreur critique : Impossible d'écrire sur le disque."})
+        return jsonify({"status": "error", "message": "Erreur critique : Impossible d'écrire sur le disque ou IP bannie."})
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
