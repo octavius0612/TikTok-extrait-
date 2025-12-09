@@ -1,239 +1,152 @@
 import os
 import smtplib
 import random
-import html
 import requests
-import time
-from flask import Flask, render_template, jsonify, send_file
+from flask import Flask, render_template, jsonify, send_file, request
 from email.message import EmailMessage
-from googleapiclient.discovery import build
 from fake_useragent import UserAgent
 import google.generativeai as genai
 
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-API_KEY = os.environ.get('YOUTUBE_API_KEY') 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+EMAIL_USER = os.environ.get('EMAIL_USER')
+EMAIL_PASS = os.environ.get('EMAIL_PASSWORD')
+EMAIL_RECEIVER = os.environ.get('EMAIL_RECEIVER')
 FILENAME = "/tmp/viral_video.mp4"
 
-# --- CONFIGURATION IA ---
+# --- IA ---
 USE_AI = False
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         USE_AI = True
-        print("✅ Mode IA (Gemini) : ACTIVÉ")
-    except Exception as e:
-        print(f"⚠️ Erreur config Gemini : {e}")
+    except: pass
 
-FALLBACK_QUERIES = [
-    "wolf of wall street motivation shorts",
-    "peaky blinders thomas shelby shorts",
-    "business mindset advice shorts",
-    "david goggins discipline shorts",
-    "kaamelott replique drole shorts",
-    "oss 117 scene culte shorts"
+ARCHIVE_TOPICS = [
+    "tiktok viral", "funny short", "movie clip vertical", 
+    "motivation video", "sigma grindset", "peaky blinders short"
 ]
 
-# --- FONCTIONS IA ---
-def get_search_query():
+def get_ai_topic():
     if USE_AI:
         try:
             model = genai.GenerativeModel('gemini-2.0-flash')
-            prompt = "Donne-moi une courte phrase de recherche pour trouver un short youtube viral sur la motivation, le business ou l'humour. Juste les mots clés. Exemple : 'peaky blinders sigma edit'"
-            response = model.generate_content(prompt)
-            query = response.text.strip()
-            return query
-        except: pass
-    return random.choice(FALLBACK_QUERIES)
-
-def get_caption(video_title, channel_name):
-    if USE_AI:
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            prompt = f"Agis comme un expert TikTok. Je poste une vidéo intitulée '{video_title}'. Rédige une description virale courte (max 3 lignes) avec 3 hashtags pertinents."
-            response = model.generate_content(prompt)
+            response = model.generate_content("Donne-moi 1 mot-clé pour chercher une vidéo virale sur Archive.org (Ex: 'funny cats').")
             return response.text.strip()
         except: pass
-    return f"Credit: {channel_name} 🔥\n\nAbonne-toi !\n#viral #shorts #fyp"
+    return random.choice(ARCHIVE_TOPICS)
 
-# --- MOTEUR TÉLÉCHARGEMENT ---
-def download_engine_hybrid(video_id):
-    ua = UserAgent()
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
-    
-    # 1. COBALT
-    cobalt_servers = [
-        "https://api.cobalt.tools/api/json",
-        "https://cobalt.kwiatekmiki.pl/api/json",
-        "https://cobalt.q11.de/api/json",
-        "https://cobalt.synced.vn/api/json",
-        "https://cobalt.rive.cafe/api/json",
-        "https://api.wkr.fr/api/json"
-    ]
-    for server in cobalt_servers:
+def generate_caption_ai(title):
+    if USE_AI:
         try:
-            payload = {"url": video_url, "vQuality": "1080", "isAudioOnly": False}
-            headers = {"Accept": "application/json", "Content-Type": "application/json", "User-Agent": ua.random, "Origin": server.replace("/api/json", ""), "Referer": server.replace("/api/json", "")}
-            r = requests.post(server, json=payload, headers=headers, timeout=6)
-            if r.status_code == 200:
-                data = r.json()
-                if data.get('url'):
-                    if download_file(data['url']): return True
-        except: continue
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(f"Description TikTok pour '{title}'. 3 hashtags.")
+            return response.text.strip()
+        except: pass
+    return f"Regarde ça ! 🔥 #viral #fyp"
 
-    # 2. PIPED
-    piped_servers = ["https://pipedapi.kavin.rocks", "https://api.piped.otton.uk", "https://pipedapi.moomoo.me", "https://pipedapi.smnz.de", "https://api.piped.privacy.com.de"]
-    for server in piped_servers:
-        try:
-            r = requests.get(f"{server}/streams/{video_id}", timeout=6)
-            if r.status_code == 200:
-                data = r.json()
-                for s in data.get('videoStreams', []):
-                    if s.get('format') == 'MPEG-4' and ('1080p' in s['quality'] or '720p' in s['quality']):
-                        if download_file(s['url']): return True
-        except: continue
-
-    # 3. INVIDIOUS
-    invidious_servers = ["https://inv.tux.pizza", "https://vid.puffyan.us", "https://yewtu.be", "https://invidious.jing.rocks"]
-    for server in invidious_servers:
-        try:
-            direct_url = f"{server}/latest_version?id={video_id}&itag=22"
-            headers = {"User-Agent": ua.random}
-            if download_file(direct_url, headers): return True
-        except: continue
-
-    return False
-
-def download_file(url, headers=None):
+# --- RECHERCHE ARCHIVE.ORG ---
+def search_archive_org():
+    topic = get_ai_topic()
+    print(f"📚 Recherche : {topic}")
     try:
-        if not headers: headers = {"User-Agent": UserAgent().random}
-        r = requests.get(url, headers=headers, stream=True, timeout=60)
-        content_type = r.headers.get('Content-Type', '')
-        if 'text/html' in content_type: return False
+        url = "https://archive.org/advancedsearch.php"
+        params = {
+            "q": f"{topic} AND mediatype:movies AND format:MPEG4",
+            "fl[]": "identifier,title",
+            "sort[]": "downloads desc",
+            "rows": "20",
+            "page": "1",
+            "output": "json"
+        }
+        data = requests.get(url, params=params, timeout=10).json()
+        if not data.get('response') or not data['response']['docs']: return None
+        
+        item = random.choice(data['response']['docs'])
+        
+        # Trouver le fichier MP4
+        meta = requests.get(f"https://archive.org/metadata/{item['identifier']}", timeout=10).json()
+        for f in meta.get('files', []):
+            if f['name'].lower().endswith('.mp4'):
+                return {
+                    "title": item.get('title', 'Vidéo Virale'),
+                    "url": f"https://archive.org/download/{item['identifier']}/{f['name']}",
+                    "source": "Archive.org"
+                }
+    except: return None
+    return None
 
+# --- TÉLÉCHARGEMENT ---
+def download_file(url):
+    print(f"⬇️ DL : {url}")
+    try:
+        r = requests.get(url, stream=True, timeout=60, headers={"User-Agent": UserAgent().random})
+        if r.status_code != 200: return False
+        
         with open(FILENAME, 'wb') as f:
-            downloaded = 0
             for chunk in r.iter_content(chunk_size=1024*1024):
-                if chunk: 
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if downloaded > 24 * 1024 * 1024: break
-        return os.path.getsize(FILENAME) > 50000 
+                if chunk: f.write(chunk)
+        return os.path.getsize(FILENAME) > 50000
     except: return False
 
-# --- SECTION SPÉCIALE ENVOI EMAIL ---
-
+# --- EMAIL ---
 def process_email_delivery(video_data):
-    """Fonction dédiée à l'envoi de l'email avec la vidéo"""
-    print("📧 Démarrage de la procédure d'envoi d'email...")
-    
-    email_user = os.environ.get('EMAIL_USER')
-    email_pass = os.environ.get('EMAIL_PASSWORD')
-    email_receiver = os.environ.get('EMAIL_RECEIVER')
-    
-    # Vérification des identifiants
-    if not all([email_user, email_pass, email_receiver]):
-        print("❌ Erreur : Identifiants email manquants dans les variables d'environnement.")
-        return False
-
-    # Vérification de la présence du fichier
-    if not os.path.exists(FILENAME):
-        print("❌ Erreur : Le fichier vidéo n'existe pas sur le disque.")
-        return False
-
-    msg = EmailMessage()
-    msg['Subject'] = f"🎬 {video_data['title']}"
-    msg['From'] = email_user
-    msg['To'] = email_receiver
-    msg.set_content(f"{video_data['caption']}\n\nSource: {video_data['url']}")
-    
+    if not all([EMAIL_USER, EMAIL_PASS, EMAIL_RECEIVER]): return False
     try:
+        msg = EmailMessage()
+        msg['Subject'] = f"🎬 {video_data['title']}"
+        msg['From'] = EMAIL_USER
+        msg['To'] = EMAIL_RECEIVER
+        msg.set_content(f"{video_data['caption']}\n\nSource : {video_data['url']}")
         with open(FILENAME, 'rb') as f:
-            file_data = f.read()
-            msg.add_attachment(file_data, maintype='video', subtype='mp4', filename="short.mp4")
-        
-        print("🚀 Connexion au serveur SMTP Gmail...")
+            msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="short.mp4")
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
-            smtp.login(email_user, email_pass)
+            smtp.login(EMAIL_USER, EMAIL_PASS)
             smtp.send_message(msg)
-        
-        print("✅ Email envoyé avec succès !")
         return True
-        
-    except Exception as e:
-        print(f"❌ Erreur lors de l'envoi de l'email : {str(e)}")
-        return False
+    except: return False
 
 # --- ROUTES ---
-
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/run_bot', methods=['POST'])
 def run_bot_api():
-    if not API_KEY:
-        return jsonify({"status": "error", "message": "Clé API YouTube manquante !"})
-
     try:
-        search_query = get_search_query()
-        youtube = build('youtube', 'v3', developerKey=API_KEY)
-        request = youtube.search().list(part="snippet", maxResults=20, q=search_query, type="video", videoDuration="short", order="viewCount", relevanceLanguage="fr")
-        response = request.execute()
+        # 1. Recherche & Download
+        video_data = search_archive_org()
+        if not video_data: video_data = search_archive_org() # Retry
         
-        if not response['items'] and USE_AI:
-            search_query = random.choice(FALLBACK_QUERIES)
-            request = youtube.search().list(part="snippet", maxResults=20, q=search_query, type="video", videoDuration="short", order="viewCount", relevanceLanguage="fr")
-            response = request.execute()
-
-        if not response['items']:
-            return jsonify({"status": "error", "message": "Aucune vidéo trouvée."})
-        
-        candidates = random.sample(response['items'], min(3, len(response['items'])))
-        
-        for video in candidates:
-            title = html.unescape(video['snippet']['title'])
-            channel = html.unescape(video['snippet']['channelTitle'])
-            video_id = video['id']['videoId']
+        if video_data and download_file(video_data['url']):
+            # 2. IA & Email
+            video_data['caption'] = generate_caption_ai(video_data['title'])
+            email_sent = process_email_delivery(video_data)
             
-            print(f"🎯 Cible : {title}")
+            status = "succès" if email_sent else "warning"
+            msg = "Email envoyé !" if email_sent else "Echec envoi email (Récupère la vidéo ci-dessous)"
 
-            if download_engine_hybrid(video_id):
-                caption = get_caption(title, channel)
-                
-                # --- APPEL DE LA FONCTION D'ENVOI D'EMAIL ICI ---
-                email_success = process_email_delivery({
-                    'title': title, 
-                    'url': f"https://youtu.be/{video_id}", 
-                    'caption': caption
-                })
-                
-                status_msg = "succès" if email_success else "warning"
-                msg_text = "Vidéo téléchargée et envoyée !" if email_success else "Vidéo téléchargée mais erreur d'envoi email."
-
-                return jsonify({
-                    "status": status_msg, 
-                    "message": msg_text,
-                    "title": title, 
-                    "channel": channel,
-                    "caption": caption,
-                    "video_url": "/get_video_file",
-                    "ai_used": USE_AI
-                })
-        
-        return jsonify({"status": "error", "message": "Échec téléchargement (3 vidéos testées)."})
+            return jsonify({
+                "status": status,
+                "message": msg,
+                "title": video_data['title'],
+                "caption": video_data['caption'],
+                "video_url": "/get_video_file", # Lien pour lire
+                "download_url": "/get_video_file?force=true" # Lien pour télécharger
+            })
+            
+        return jsonify({"status": "error", "message": "Impossible de trouver/télécharger une vidéo."})
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/get_video_file')
 def get_video_file():
-    try:
-        return send_file(FILENAME, mimetype='video/mp4')
-    except:
-        return "Fichier introuvable ou pas encore téléchargé", 404
+    # Si ?force=true, on force le téléchargement du fichier
+    as_attachment = request.args.get('force') == 'true'
+    return send_file(FILENAME, mimetype='video/mp4', as_attachment=as_attachment, download_name='viral_video.mp4')
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000)
