@@ -13,161 +13,151 @@ import google.generativeai as genai
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-# Récupération des clés depuis les variables d'environnement Render
 API_KEY = os.environ.get('YOUTUBE_API_KEY') 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
-# Sur Render, on utilise /tmp pour le stockage temporaire car c'est le seul dossier inscriptible
 FILENAME = "/tmp/viral_video.mp4"
 
-# --- CONFIGURATION IA (HYBRIDE) ---
+# --- CONFIGURATION IA ---
 USE_AI = False
 if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         USE_AI = True
-        print("✅ Mode IA (Gemini) : ACTIVÉ")
-    except Exception as e:
-        print(f"⚠️ Erreur config Gemini : {e}")
+    except: pass
 
-# Listes de secours (Si pas d'IA ou erreur)
 FALLBACK_QUERIES = [
-    "wolf of wall street motivation shorts",
-    "peaky blinders thomas shelby shorts",
-    "business mindset advice shorts",
-    "david goggins discipline shorts",
-    "kaamelott replique drole shorts",
-    "oss 117 scene culte shorts"
+    "motivation success",
+    "peaky blinders",
+    "business mindset",
+    "david goggins",
+    "kaamelott",
+    "oss 117"
 ]
 
-# --- FONCTIONS INTELLIGENTES (IA) ---
+# --- 1. FONCTIONS INTELLIGENTES (IA) ---
 
 def get_search_query():
-    """Demande à Gemini une idée de recherche ou utilise l'aléatoire"""
+    """Demande à l'IA un mot-clé simple pour la recherche"""
     if USE_AI:
         try:
             model = genai.GenerativeModel('gemini-2.0-flash')
-            prompt = "Donne-moi une courte phrase de recherche pour trouver un short youtube viral sur la motivation, le business ou l'humour. Juste les mots clés. Exemple : 'peaky blinders sigma edit'"
-            response = model.generate_content(prompt)
-            query = response.text.strip()
-            return query
-        except:
-            pass # Si erreur, on passe à la suite
-    
-    return random.choice(FALLBACK_QUERIES)
-
-def get_caption(video_title, channel_name):
-    """Génère une description TikTok via IA"""
-    if USE_AI:
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash')
-            prompt = f"Agis comme un expert TikTok. Je poste une vidéo intitulée '{video_title}'. Rédige une description virale courte (max 3 lignes) avec 3 hashtags pertinents."
+            # Dailymotion préfère les mots-clés simples
+            prompt = "Donne-moi 1 seul mot-clé ou une expression courte (max 3 mots) pour trouver une vidéo virale drôle ou motivation. Exemple: 'sigma rule' ou 'oss 117'. Pas de phrase."
             response = model.generate_content(prompt)
             return response.text.strip()
-        except:
-            pass
+        except: pass
+    return random.choice(FALLBACK_QUERIES)
+
+def get_caption(title, channel):
+    """Génère la description TikTok"""
+    if USE_AI:
+        try:
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            response = model.generate_content(f"Ecris une description tiktok virale pour la vidéo '{title}'. Ajoute 3 hashtags.")
+            return response.text.strip()
+        except: pass
+    return f"Credit: {channel} 🔥 #viral #fyp"
+
+# --- 2. MODULE DAILYMOTION (PLAN B ROBUSTE) ---
+
+def search_and_download_dailymotion(query):
+    print(f"🔵 Tentative Dailymotion pour : {query}")
+    try:
+        # Recherche API Dailymotion (Publique, pas besoin de clé)
+        # On filtre : pas de live, moins de 2 min (format short)
+        dm_url = f"https://api.dailymotion.com/videos?fields=id,title,owner.screenname&flags=no_live&shorter_than=120&sort=visited&search={query}&limit=10"
+        
+        r = requests.get(dm_url, timeout=10)
+        data = r.json()
+        
+        if not data.get('list'):
+            print("❌ Dailymotion : Aucun résultat trouvé.")
+            return None
             
-    return f"Credit: {channel_name} 🔥\n\nAbonne-toi !\n#viral #shorts #fyp"
+        # On prend une vidéo au hasard
+        video = random.choice(data['list'])
+        video_id = video['id']
+        title = video['title']
+        channel = video['owner.screenname']
+        
+        print(f"✅ Dailymotion Trouvé : {title}")
+        
+        # Astuce de Hacker : On interroge les métadonnées du player pour avoir le lien direct MP4
+        meta_url = f"https://www.dailymotion.com/player/metadata/video/{video_id}"
+        meta_r = requests.get(meta_url, timeout=10)
+        meta_data = meta_r.json()
+        
+        qualities = meta_data.get('qualities', {})
+        download_url = None
+        
+        # On cherche la meilleure qualité disponible
+        for q in ['1080', '720', '480', '380', 'auto']:
+            if q in qualities:
+                download_url = qualities[q][0]['url']
+                break
+        
+        if download_url:
+            if download_file(download_url):
+                return {
+                    'title': title, 
+                    'channel': channel, 
+                    'url': f"https://dailymotion.com/video/{video_id}", 
+                    'source': 'Dailymotion'
+                }
+                
+    except Exception as e:
+        print(f"❌ Erreur Dailymotion : {e}")
+        return None
+    
+    return None
 
-# --- MOTEUR DE TÉLÉCHARGEMENT MASSIF ---
+# --- 3. MODULE YOUTUBE (COBALT) ---
 
-def download_engine_hybrid(video_id):
-    """Essaie de télécharger la vidéo en utilisant toutes les méthodes possibles"""
+def download_youtube_hybrid(video_id):
     ua = UserAgent()
     video_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # 1. LISTE COBALT (Priorité Qualité 1080p)
-    cobalt_servers = [
+    # Serveurs Cobalt
+    servers = [
         "https://api.cobalt.tools/api/json",
         "https://cobalt.kwiatekmiki.pl/api/json",
-        "https://cobalt.q11.de/api/json",
-        "https://cobalt.synced.vn/api/json",
-        "https://cobalt.rive.cafe/api/json",
-        "https://api.wkr.fr/api/json"
+        "https://api.wkr.fr/api/json",
+        "https://cobalt.rive.cafe/api/json"
     ]
     
-    print("🛡️ [1/3] Tentative Cobalt...")
-    for server in cobalt_servers:
+    for server in servers:
         try:
-            payload = {"url": video_url, "vQuality": "1080", "isAudioOnly": False}
-            headers = {
-                "Accept": "application/json", 
-                "Content-Type": "application/json", 
-                "User-Agent": ua.random,
-                "Origin": server.replace("/api/json", ""),
-                "Referer": server.replace("/api/json", "")
-            }
-            # Timeout court (6s) pour tester vite
-            r = requests.post(server, json=payload, headers=headers, timeout=6)
+            r = requests.post(server, 
+                json={"url": video_url, "vQuality": "1080", "isAudioOnly": False},
+                headers={"Accept": "application/json", "User-Agent": ua.random},
+                timeout=6)
+            
             if r.status_code == 200:
                 data = r.json()
                 if data.get('url'):
                     if download_file(data['url']): return True
         except: continue
-
-    # 2. LISTE PIPED (Backup API)
-    print("🛡️ [2/3] Tentative Piped...")
-    piped_servers = [
-        "https://pipedapi.kavin.rocks",
-        "https://api.piped.otton.uk",
-        "https://pipedapi.moomoo.me",
-        "https://pipedapi.smnz.de",
-        "https://api.piped.privacy.com.de"
-    ]
-    for server in piped_servers:
-        try:
-            r = requests.get(f"{server}/streams/{video_id}", timeout=6)
-            if r.status_code == 200:
-                data = r.json()
-                for s in data.get('videoStreams', []):
-                    # On cherche du MP4 en HD ou SD
-                    if s.get('format') == 'MPEG-4' and ('1080p' in s['quality'] or '720p' in s['quality']):
-                        if download_file(s['url']): return True
-        except: continue
-
-    # 3. LISTE INVIDIOUS (Direct Stream - Dernier recours)
-    print("🛡️ [3/3] Tentative Invidious Direct...")
-    invidious_servers = [
-        "https://inv.tux.pizza",
-        "https://vid.puffyan.us",
-        "https://yewtu.be",
-        "https://invidious.jing.rocks"
-    ]
-    for server in invidious_servers:
-        try:
-            # itag 22 = 720p MP4 (Standard YouTube)
-            direct_url = f"{server}/latest_version?id={video_id}&itag=22"
-            headers = {"User-Agent": ua.random}
-            if download_file(direct_url, headers): return True
-        except: continue
-
     return False
 
-def download_file(url, headers=None):
-    """Télécharge physiquement le fichier sur le disque"""
+def download_file(url):
     try:
-        if not headers: headers = {"User-Agent": UserAgent().random}
+        # User-Agent aléatoire pour ne pas être bloqué
+        headers = {"User-Agent": UserAgent().random}
+        r = requests.get(url, stream=True, headers=headers, timeout=60)
         
-        # Stream=True est crucial pour ne pas saturer la mémoire
-        # Timeout global de 60s pour le téléchargement lui-même
-        r = requests.get(url, headers=headers, stream=True, timeout=60)
-        
-        # Vérification anti-erreur (Si on reçoit du HTML au lieu d'une vidéo, c'est un échec)
+        # On vérifie que c'est bien une vidéo et pas une page d'erreur
         content_type = r.headers.get('Content-Type', '')
         if 'text/html' in content_type: return False
 
         with open(FILENAME, 'wb') as f:
-            downloaded = 0
             for chunk in r.iter_content(chunk_size=1024*1024):
-                if chunk: 
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if downloaded > 24 * 1024 * 1024: break # Stop à 24MB pour Gmail
+                if chunk: f.write(chunk)
         
-        # On vérifie que le fichier n'est pas vide (> 50KB)
-        return os.path.getsize(FILENAME) > 50000 
+        # Vérif taille (> 50KB)
+        return os.path.getsize(FILENAME) > 50000
     except: return False
 
-# --- ROUTES DU SITE WEB ---
+# --- ROUTES DU SITE ---
 
 @app.route('/')
 def index():
@@ -175,64 +165,47 @@ def index():
 
 @app.route('/run_bot', methods=['POST'])
 def run_bot_api():
-    if not API_KEY:
-        return jsonify({"status": "error", "message": "Clé API YouTube manquante !"})
-
     try:
-        # 1. Recherche (IA ou Classique)
         search_query = get_search_query()
-
-        # 2. Appel YouTube API
-        youtube = build('youtube', 'v3', developerKey=API_KEY)
-        request = youtube.search().list(
-            part="snippet", maxResults=20, q=search_query, type="video",
-            videoDuration="short", order="viewCount", relevanceLanguage="fr"
-        )
-        response = request.execute()
+        youtube_success = False
         
-        # Si la recherche IA est trop bizarre et ne donne rien, on fallback sur du classique
-        if not response['items'] and USE_AI:
-            search_query = random.choice(FALLBACK_QUERIES)
-            request = youtube.search().list(
-                part="snippet", maxResults=20, q=search_query, type="video",
-                videoDuration="short", order="viewCount", relevanceLanguage="fr"
-            )
-            response = request.execute()
-
-        if not response['items']:
-            return jsonify({"status": "error", "message": "Aucune vidéo trouvée."})
-        
-        # --- STRATÉGIE MULTI-CIBLES ---
-        # On ne parie pas tout sur une seule vidéo. On en sélectionne 3 potentielles.
-        # Si la première échoue au téléchargement, on tente la suivante.
-        candidates = random.sample(response['items'], min(3, len(response['items'])))
-        
-        for video in candidates:
-            title = html.unescape(video['snippet']['title'])
-            channel = html.unescape(video['snippet']['channelTitle'])
-            video_id = video['id']['videoId']
-            
-            print(f"🎯 Cible : {title}")
-
-            # TENTATIVE DE TÉLÉCHARGEMENT
-            if download_engine_hybrid(video_id):
-                # SUCCÈS ! On génère la description et on envoie
-                caption = get_caption(title, channel)
+        # --- ESSAI 1 : YOUTUBE ---
+        if API_KEY:
+            try:
+                youtube = build('youtube', 'v3', developerKey=API_KEY)
+                request = youtube.search().list(part="snippet", maxResults=5, q=search_query, type="video", videoDuration="short", order="viewCount")
+                response = request.execute()
                 
-                # Envoi Email
-                deliver({'title': title, 'url': f"https://youtu.be/{video_id}", 'caption': caption})
-                
-                # Réponse au site web
-                return jsonify({
-                    "status": "success", 
-                    "title": title, 
-                    "caption": caption,
-                    "video_url": "/get_video_file",
-                    "ai_used": USE_AI
-                })
+                if response.get('items'):
+                    # On tente jusqu'à 2 vidéos YouTube
+                    for item in random.sample(response['items'], min(2, len(response['items']))):
+                        vid_id = item['id']['videoId']
+                        title = html.unescape(item['snippet']['title'])
+                        channel = html.unescape(item['snippet']['channelTitle'])
+                        
+                        if download_youtube_hybrid(vid_id):
+                            caption = get_caption(title, channel)
+                            deliver(title, f"https://youtu.be/{vid_id}", caption, "YouTube")
+                            return jsonify({"status": "success", "title": title, "caption": caption, "video_url": "/get_video_file", "source": "YouTube"})
+            except Exception as e:
+                print(f"⚠️ YouTube erreur : {e}")
+
+        # --- ESSAI 2 : DAILYMOTION (Si YouTube rate) ---
+        print("⚠️ Passage au Plan B : Dailymotion")
+        dm_result = search_and_download_dailymotion(search_query)
         
-        # Si on arrive ici, c'est que les 3 vidéos ont échoué sur tous les serveurs
-        return jsonify({"status": "error", "message": "Échec téléchargement (3 vidéos testées)."})
+        if dm_result:
+            caption = get_caption(dm_result['title'], dm_result['channel'])
+            deliver(dm_result['title'], dm_result['url'], caption, "Dailymotion")
+            return jsonify({
+                "status": "success", 
+                "title": dm_result['title'], 
+                "caption": caption, 
+                "video_url": "/get_video_file", 
+                "source": "Dailymotion"
+            })
+
+        return jsonify({"status": "error", "message": "Impossible de télécharger sur YouTube ET Dailymotion."})
 
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
@@ -242,19 +215,19 @@ def get_video_file():
     try:
         return send_file(FILENAME, mimetype='video/mp4')
     except:
-        return "Fichier introuvable ou pas encore téléchargé", 404
+        return "Fichier introuvable", 404
 
-def deliver(video_data):
+def deliver(title, url, caption, source):
     email_user = os.environ.get('EMAIL_USER')
     email_pass = os.environ.get('EMAIL_PASSWORD')
     email_receiver = os.environ.get('EMAIL_RECEIVER')
     if not all([email_user, email_pass, email_receiver]): return
 
     msg = EmailMessage()
-    msg['Subject'] = f"🎬 {video_data['title']}"
+    msg['Subject'] = f"🎬 {source} : {title}"
     msg['From'] = email_user
     msg['To'] = email_receiver
-    msg.set_content(f"{video_data['caption']}\n\nSource: {video_data['url']}")
+    msg.set_content(f"{caption}\n\nSource: {url}")
     
     with open(FILENAME, 'rb') as f:
         msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="short.mp4")
