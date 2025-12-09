@@ -13,9 +13,10 @@ import google.generativeai as genai
 app = Flask(__name__)
 
 # --- CONFIGURATION ---
-# Récupération des clés depuis Render
+# Récupération des clés depuis les variables d'environnement Render
 API_KEY = os.environ.get('YOUTUBE_API_KEY') 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+# Sur Render, on utilise /tmp pour le stockage temporaire car c'est le seul dossier inscriptible
 FILENAME = "/tmp/viral_video.mp4"
 
 # --- CONFIGURATION IA (HYBRIDE) ---
@@ -95,7 +96,8 @@ def download_engine_hybrid(video_id):
                 "Origin": server.replace("/api/json", ""),
                 "Referer": server.replace("/api/json", "")
             }
-            r = requests.post(server, json=payload, headers=headers, timeout=8)
+            # Timeout court (6s) pour tester vite
+            r = requests.post(server, json=payload, headers=headers, timeout=6)
             if r.status_code == 200:
                 data = r.json()
                 if data.get('url'):
@@ -113,7 +115,7 @@ def download_engine_hybrid(video_id):
     ]
     for server in piped_servers:
         try:
-            r = requests.get(f"{server}/streams/{video_id}", timeout=8)
+            r = requests.get(f"{server}/streams/{video_id}", timeout=6)
             if r.status_code == 200:
                 data = r.json()
                 for s in data.get('videoStreams', []):
@@ -146,7 +148,8 @@ def download_file(url, headers=None):
         if not headers: headers = {"User-Agent": UserAgent().random}
         
         # Stream=True est crucial pour ne pas saturer la mémoire
-        r = requests.get(url, headers=headers, stream=True, timeout=20)
+        # Timeout global de 60s pour le téléchargement lui-même
+        r = requests.get(url, headers=headers, stream=True, timeout=60)
         
         # Vérification anti-erreur (Si on reçoit du HTML au lieu d'une vidéo, c'est un échec)
         content_type = r.headers.get('Content-Type', '')
@@ -223,7 +226,6 @@ def run_bot_api():
                 return jsonify({
                     "status": "success", 
                     "title": title, 
-                    "channel": channel,
                     "caption": caption,
                     "video_url": "/get_video_file",
                     "ai_used": USE_AI
@@ -237,7 +239,10 @@ def run_bot_api():
 
 @app.route('/get_video_file')
 def get_video_file():
-    return send_file(FILENAME, mimetype='video/mp4')
+    try:
+        return send_file(FILENAME, mimetype='video/mp4')
+    except:
+        return "Fichier introuvable ou pas encore téléchargé", 404
 
 def deliver(video_data):
     email_user = os.environ.get('EMAIL_USER')
@@ -249,7 +254,7 @@ def deliver(video_data):
     msg['Subject'] = f"🎬 {video_data['title']}"
     msg['From'] = email_user
     msg['To'] = email_receiver
-    msg.set_content(f"Voici ta vidéo.\n\nDescription :\n{video_data['caption']}\n\nSource : {video_data['url']}")
+    msg.set_content(f"{video_data['caption']}\n\nSource: {video_data['url']}")
     
     with open(FILENAME, 'rb') as f:
         msg.add_attachment(f.read(), maintype='video', subtype='mp4', filename="short.mp4")
