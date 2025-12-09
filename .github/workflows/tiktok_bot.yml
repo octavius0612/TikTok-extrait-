@@ -1,73 +1,37 @@
-name: TikTok Bot (VPN Routing Fix)
+name: TikTok Bot (Download Mode)
 
 on:
-  schedule:
-    - cron: '0 8 * * *'
-  workflow_dispatch:
+  workflow_dispatch: # Lancement manuel
 
 jobs:
-  run-vpn:
+  build:
     runs-on: ubuntu-latest
-    # Droits admin réseau obligatoires
-    container:
-      image: python:3.11-bookworm
-      options: --cap-add=NET_ADMIN --device /dev/net/tun --sysctl net.ipv6.conf.all.disable_ipv6=0
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Tools
-        run: |
-          apt-get update
-          apt-get install -y wireguard iproute2 curl
+      - name: Install Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-      - name: Start Manual VPN
-        run: |
-          # 1. Préparation de la config (Nettoyage pour 'wg setconf')
-          echo "${{ secrets.WIREGUARD_CONF }}" > full.conf
-          grep -v "Address" full.conf | grep -v "DNS" | grep -v "MTU" > wg0.conf
-          chmod 600 wg0.conf
-          
-          # 2. Montage de l'interface
-          ip link add dev wg0 type wireguard
-          ip address add 10.0.192.56/32 dev wg0
-          wg setconf wg0 wg0.conf
-          ip link set up dev wg0
-          
-          # --- C'EST ICI QUE LA MAGIE DU ROUTAGE OPÈRE ---
-          
-          # A. On récupère la passerelle internet actuelle du serveur GitHub
-          DEFAULT_GW=$(ip route show default | awk '{print $3}')
-          echo "Passerelle détectée : $DEFAULT_GW"
-          
-          # B. On "épingle" ton serveur VPN (213.239.219.28) pour qu'il passe par la vraie internet
-          # (Sinon le tunnel essaie de passer dans le tunnel et ça coupe tout)
-          ip route add 213.239.219.28 via $DEFAULT_GW
-          
-          # C. On redirige tout le reste d'internet vers le VPN via l'astuce des "Deux moitiés"
-          # Cela évite l'erreur "File exists"
-          ip route add 0.0.0.0/1 dev wg0
-          ip route add 128.0.0.0/1 dev wg0
-          
-          # D. Petite pause café pour la connexion
-          sleep 3
-          
-          # 4. PREUVE FINALE
-          echo "🌍 Test IP publique..."
-          curl --max-time 5 https://ifconfig.me
-          # Si ça affiche 213.239..., tu as gagné.
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
 
-      - name: Install Python Deps
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run Bot
+      - name: Run Bot (Generate Files)
         env:
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-          EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
-          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
+
+      # C'EST ICI QUE ÇA SE PASSE
+      - name: Upload Result (Video + HTML)
+        uses: actions/upload-artifact@v4
+        with:
+          name: RESULTAT-VIRAL
+          path: |
+            viral_video.mp4
+            index.html
+          retention-days: 1
+
+
