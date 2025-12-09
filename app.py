@@ -46,12 +46,11 @@ def get_caption(title, channel):
         except: pass
     return f"Credit: {channel} 🔥 #viral"
 
-# --- TÉLÉCHARGEMENT ---
+# --- DOWNLOAD VIA VPN ---
 def download_video(video_id):
     url = f"https://www.youtube.com/watch?v={video_id}"
-    print(f"⬇️ Téléchargement : {url}")
+    print(f"⬇️ Téléchargement via VPN : {url}")
     
-    # Configuration simple (Le VPN s'occupe de tout)
     ydl_opts = {
         'format': 'best[ext=mp4]/best',
         'outtmpl': FILENAME,
@@ -61,23 +60,18 @@ def download_video(video_id):
     
     try:
         if os.path.exists(FILENAME): os.remove(FILENAME)
-        
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-            
-        if os.path.exists(FILENAME) and os.path.getsize(FILENAME) > 10000:
-            return True
+        return os.path.exists(FILENAME)
     except Exception as e:
         print(f"❌ Erreur : {e}")
-    
-    return False
+        return False
 
 # --- ENVOI ---
 def deliver(title, url, caption):
     user = os.environ.get('EMAIL_USER')
     pwd = os.environ.get('EMAIL_PASSWORD')
     rcv = os.environ.get('EMAIL_RECEIVER')
-    
     if not all([user, pwd, rcv]): return
 
     msg = EmailMessage()
@@ -99,7 +93,6 @@ if __name__ == "__main__":
         print("❌ Clé API Google manquante")
         exit()
 
-    print("🔍 Recherche via API Google...")
     youtube = build('youtube', 'v3', developerKey=API_KEY)
     request = youtube.search().list(part="snippet", maxResults=10, q=get_search_query(), type="video", videoDuration="short", order="viewCount")
     response = request.execute()
@@ -114,6 +107,16 @@ if __name__ == "__main__":
                 deliver(title, f"https://youtu.be/{vid_id}", caption)
                 break
     else:
-        print("❌ Aucune vidéo trouvée.")
+        print("❌ Rien trouvé.")
+
+3. requirements.txt
+google-api-python-client
+yt-dlp
+secure-smtplib
+google-generativeai
+
+Pourquoi ça va marcher ?
+Dans le fichier YAML, j'ai ajouté ces commandes :
+grep -v "Address" full.conf | grep -v "DNS" | grep -v "MTU" > wg0.conf
 
 
