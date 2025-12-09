@@ -1,40 +1,52 @@
-name: TikTok Viral Bot (Pro API)
+name: TikTok Bot (VPN WireGuard)
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Tous les matins à 8h
-  workflow_dispatch: # Bouton manuel
+    - cron: '0 8 * * *' # Lance tous les jours à 8h00 UTC
+  workflow_dispatch: # Permet de lancer manuellement pour tester
 
 jobs:
-  run-bot:
+  run-with-vpn:
     runs-on: ubuntu-latest
-    
+    # Cette option est CRUCIALE : elle donne les droits "Admin Réseau" pour lancer le VPN
+    container:
+      image: python:3.11-bookworm
+      options: --cap-add=NET_ADMIN --device /dev/net/tun 
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install System Dependencies
+      # 1. INSTALLATION & CONNEXION VPN
+      - name: Setup WireGuard
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          apt-get update && apt-get install -y wireguard openresolv iproute2 curl
+          echo "${{ secrets.WIREGUARD_CONF }}" > /etc/wireguard/wg0.conf
+          chmod 600 /etc/wireguard/wg0.conf
+          wg-quick up wg0
+          
+          # Petite pause pour laisser la connexion s'établir
+          sleep 2
+          
+          # PREUVE QUE ÇA MARCHE : On affiche l'IP publique utilisée
+          echo "🌍 MON IP ACTUELLE EST :"
+          curl -s ifconfig.me
+          # Si tu vois 213.239... dans les logs, c'est gagné !
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11' # Version plus récente (supprime le warning)
-          cache: 'pip'
-
-      - name: Install Python libraries
+      # 2. INSTALLATION PYTHON
+      - name: Install Dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Viral Bot
+      # 3. LANCEMENT DU BOT (Sous protection VPN)
+      - name: Run Bot
         env:
-          # C'est ici qu'on injecte les clés dans le script
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECEIVER: ${{ secrets.EMAIL_RECEIVER }}
-          # LA LIGNE QUI MANQUAIT :
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
+
+
