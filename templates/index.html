@@ -5,104 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Viral Hunter</title>
     <style>
-        :root {
-            --bg: #000000;
-            --surface: #121212;
-            --primary: #FE2C55;
-            --secondary: #25F4EE;
-            --text: #ffffff;
-        }
-        body {
-            background-color: var(--bg);
-            color: var(--text);
-            font-family: sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-            padding: 20px;
-        }
-        .container { max-width: 500px; width: 100%; text-align: center; }
+        :root { --bg: #000; --primary: #FE2C55; --secondary: #25F4EE; --text: #fff; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; text-align: center;}
+        h1 { background: linear-gradient(45deg, var(--secondary), var(--primary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 900; margin-bottom: 5px; }
         
-        h1 {
-            background: -webkit-linear-gradient(45deg, var(--secondary), var(--primary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-weight: 900;
-            font-size: 2.5rem;
-            margin-bottom: 5px;
-        }
+        .hunt-btn { background: linear-gradient(45deg, var(--primary), #d62446); color: white; border: none; padding: 15px 40px; font-weight: bold; border-radius: 30px; cursor: pointer; margin-top: 20px; width: 100%; max-width: 300px; font-size: 1.1rem;}
+        .hunt-btn:disabled { opacity: 0.6; cursor: wait; }
+        
+        .download-btn { background: #222; color: var(--secondary); border: 2px solid var(--secondary); padding: 10px 20px; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 15px; width: 100%; max-width: 300px; display: none; text-decoration: none; display: block; margin: 15px auto;}
+        .download-btn:hover { background: var(--secondary); color: #000; }
 
-        .hunt-btn {
-            background: linear-gradient(45deg, var(--primary), #d62446);
-            color: white;
-            border: none;
-            padding: 18px 40px;
-            font-size: 1.2rem;
-            font-weight: bold;
-            border-radius: 30px;
-            cursor: pointer;
-            width: 100%;
-            margin-top: 20px;
-        }
-        .hunt-btn:disabled { opacity: 0.7; cursor: wait; }
-
-        .video-wrapper {
-            margin-top: 20px;
-            background: var(--surface);
-            border-radius: 15px;
-            overflow: hidden;
-            display: none;
-            border: 1px solid #333;
-        }
+        .video-wrapper { margin-top: 20px; width: 100%; max-width: 350px; display: none; border: 1px solid #333; border-radius: 10px; overflow: hidden; }
         video { width: 100%; display: block; }
         
-        .caption-box {
-            padding: 15px;
-            text-align: left;
-            background: #1a1a1a;
-            border-top: 1px solid #333;
-        }
-        .caption-text {
-            font-family: monospace;
-            color: #ccc;
-            white-space: pre-wrap;
-            font-size: 0.9rem;
-        }
-        .ai-badge {
-            font-size: 0.8rem;
-            padding: 2px 8px;
-            border-radius: 4px;
-            margin-top: 5px;
-            display: inline-block;
-        }
-        .ai-active { background: #6c5ce7; color: white; }
-        .ai-inactive { background: #444; color: #aaa; }
+        .caption-box { background: #111; padding: 15px; text-align: left; font-family: monospace; font-size: 0.9rem; border-top: 1px solid #333; }
+        .loader { display: none; margin-top: 20px; font-size: 1.5rem; animation: spin 1s infinite linear; }
+        .error-msg { color: #ff4757; margin-top: 20px; display: none; }
+        .success-msg { color: #2ecc71; margin-top: 10px; display: none; font-weight: bold;}
         
-        .error-msg { color: #ff4757; display: none; margin-top: 20px; }
-        .loader { display: none; margin-top: 20px; font-size: 2rem; animation: spin 1s infinite linear; }
         @keyframes spin { from {transform:rotate(0deg);} to {transform:rotate(360deg);} }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>VIRAL HUNTER</h1>
-        <p style="color:#666;">Générateur de contenu automatisé</p>
+    <h1>VIRAL HUNTER</h1>
+    <p>Source : Archive.org</p>
 
-        <button class="hunt-btn" id="startBtn" onclick="startHunt()">LANCER LA CHASSE 🚀</button>
-        <div class="loader" id="loader">⚙️</div>
-        <div class="error-msg" id="errorMsg"></div>
+    <button class="hunt-btn" id="startBtn" onclick="startHunt()">LANCER LA CHASSE 🚀</button>
+    <div class="loader" id="loader">📚 Recherche dans les archives...</div>
+    
+    <div class="success-msg" id="successMsg"></div>
+    <div class="error-msg" id="errorMsg"></div>
 
-        <div class="video-wrapper" id="resultContainer">
-            <video id="resultVideo" controls playsinline loop></video>
-            <div class="caption-box">
-                <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                    <strong style="color:var(--secondary)">Description</strong>
-                    <span id="aiBadge" class="ai-badge ai-inactive">Mode Classique</span>
-                </div>
-                <div class="caption-text" id="captionText"></div>
-            </div>
-        </div>
+    <div class="video-wrapper" id="resultContainer" style="display:none;">
+        <video id="resultVideo" controls playsinline loop></video>
+        
+        <!-- BOUTON DE SECOURS -->
+        <a id="dlLink" href="#" class="download-btn">📥 TÉLÉCHARGER MP4</a>
+        
+        <div class="caption-box" id="captionText"></div>
     </div>
 
     <script>
@@ -111,39 +51,40 @@
             const loader = document.getElementById('loader');
             const resultContainer = document.getElementById('resultContainer');
             const errorMsg = document.getElementById('errorMsg');
+            const successMsg = document.getElementById('successMsg');
+            const dlLink = document.getElementById('dlLink');
 
             btn.disabled = true;
             loader.style.display = "block";
             resultContainer.style.display = "none";
             errorMsg.style.display = "none";
+            successMsg.style.display = "none";
 
             try {
                 const response = await fetch('/run_bot', { method: 'POST' });
                 const data = await response.json();
 
-                if (data.status === 'success') {
+                if (data.status === 'success' || data.status === 'warning') {
                     resultContainer.style.display = "block";
                     document.getElementById('captionText').innerText = data.caption;
                     
-                    const badge = document.getElementById('aiBadge');
-                    if(data.ai_used) {
-                        badge.innerText = "✨ Généré par Gemini";
-                        badge.className = "ai-badge ai-active";
-                    } else {
-                        badge.innerText = "🎲 Mode Aléatoire";
-                        badge.className = "ai-badge ai-inactive";
-                    }
-
                     const videoPlayer = document.getElementById('resultVideo');
                     videoPlayer.src = data.video_url + "?t=" + Date.now();
                     videoPlayer.load();
+
+                    // Configuration du bouton de secours
+                    dlLink.href = data.download_url;
+                    dlLink.style.display = "block";
+
+                    successMsg.innerText = "✅ " + data.message;
+                    successMsg.style.display = "block";
                 } else {
-                    errorMsg.style.display = "block";
                     errorMsg.innerText = "❌ " + data.message;
+                    errorMsg.style.display = "block";
                 }
             } catch (err) {
-                errorMsg.style.display = "block";
                 errorMsg.innerText = "❌ Erreur : " + err;
+                errorMsg.style.display = "block";
             } finally {
                 loader.style.display = "none";
                 btn.disabled = false;
@@ -152,3 +93,5 @@
     </script>
 </body>
 </html>
+
+
