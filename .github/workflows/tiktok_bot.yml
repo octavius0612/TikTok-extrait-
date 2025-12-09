@@ -1,4 +1,4 @@
-name: TikTok Bot (VPN Final)
+name: TikTok Bot (VPN Routing Fix)
 
 on:
   schedule:
@@ -8,7 +8,7 @@ on:
 jobs:
   run-vpn:
     runs-on: ubuntu-latest
-    # Droits d'administration réseau obligatoires
+    # Droits admin réseau obligatoires
     container:
       image: python:3.11-bookworm
       options: --cap-add=NET_ADMIN --device /dev/net/tun --sysctl net.ipv6.conf.all.disable_ipv6=0
@@ -22,36 +22,41 @@ jobs:
           apt-get update
           apt-get install -y wireguard iproute2 curl
 
-      - name: Start VPN (Clean Config)
+      - name: Start Manual VPN
         run: |
-          # 1. On écrit ta config complète dans un fichier temporaire
+          # 1. Préparation de la config (Nettoyage pour 'wg setconf')
           echo "${{ secrets.WIREGUARD_CONF }}" > full.conf
-          
-          # 2. NETTOYAGE : On enlève Address et DNS car 'wg' ne les aime pas
           grep -v "Address" full.conf | grep -v "DNS" | grep -v "MTU" > wg0.conf
           chmod 600 wg0.conf
           
-          # 3. Création de l'interface
+          # 2. Montage de l'interface
           ip link add dev wg0 type wireguard
-          
-          # 4. On ajoute l'adresse IP manuellement (Celle de ton erreur)
           ip address add 10.0.192.56/32 dev wg0
-          
-          # 5. On charge la config nettoyée
           wg setconf wg0 wg0.conf
-          
-          # 6. On allume
           ip link set up dev wg0
           
-          # 7. ROUTAGE : Tout le trafic passe par le tunnel
-          ip route add 0.0.0.0/0 dev wg0
+          # --- C'EST ICI QUE LA MAGIE DU ROUTAGE OPÈRE ---
           
+          # A. On récupère la passerelle internet actuelle du serveur GitHub
+          DEFAULT_GW=$(ip route show default | awk '{print $3}')
+          echo "Passerelle détectée : $DEFAULT_GW"
+          
+          # B. On "épingle" ton serveur VPN (213.239.219.28) pour qu'il passe par la vraie internet
+          # (Sinon le tunnel essaie de passer dans le tunnel et ça coupe tout)
+          ip route add 213.239.219.28 via $DEFAULT_GW
+          
+          # C. On redirige tout le reste d'internet vers le VPN via l'astuce des "Deux moitiés"
+          # Cela évite l'erreur "File exists"
+          ip route add 0.0.0.0/1 dev wg0
+          ip route add 128.0.0.0/1 dev wg0
+          
+          # D. Petite pause café pour la connexion
           sleep 3
           
-          # 8. PREUVE
-          echo "🌍 IP AVANT : (Masquée)"
-          echo "🌍 IP APRÈS (VPN) :"
+          # 4. PREUVE FINALE
+          echo "🌍 Test IP publique..."
           curl --max-time 5 https://ifconfig.me
+          # Si ça affiche 213.239..., tu as gagné.
 
       - name: Install Python Deps
         run: |
@@ -66,5 +71,3 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
-
-
