@@ -1,4 +1,5 @@
 google-api-python-client
-yt-dlp
+requests
 secure-smtplib
 google-generativeai
+fake-useragent
